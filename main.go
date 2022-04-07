@@ -11,25 +11,73 @@ import (
 	shell "github.com/ipfs/go-ipfs-api"
 )
 
-const curatedDir = "/dBranch/curated"
+//
+// article
+//
 
-func getShell() *shell.Shell {
+type Article struct {
+	Name string `json:"name"`
+	CID  string `json:"cid"`
+}
+
+func (a *Article) addToCurated(w *WireSub) {
+	ipfsPath := path.Join("/ipfs", a.CID)
+	localPath := path.Join(w.CuratedDir, a.Name)
+	log.Printf("got new article, copying from: %s to: %s\n", ipfsPath, localPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	err := w.sh.FilesCp(ctx, ipfsPath, localPath)
+	if err != nil {
+		log.Printf("error copying: %s\n", err)
+		return
+	}
+
+	log.Println("article copy complete")
+
+}
+
+//
+// wire
+//
+
+type WireSub struct {
+	IpfsHost    string
+	WireChannel string
+	CuratedDir  string
+	sh          *shell.Shell
+}
+
+func WireSubFromEnv() *WireSub {
 	host := os.Getenv("IPFS_HOST")
-
 	if host == "" {
 		host = "localhost:5001"
 	}
 
-	log.Printf("creating shell for %s\n", host)
+	wire := os.Getenv("DBRANCH_WIRE_CHANNEL")
+	if wire == "" {
+		wire = "dbranch-wire"
+	}
 
-	return shell.NewShell(host)
+	dir := os.Getenv("DBRANCH_CURATED_DIRECTORY")
+	if dir == "" {
+		dir = "/dBranch/curated"
+	}
+
+	return &WireSub{
+		IpfsHost:    host,
+		WireChannel: wire,
+		CuratedDir:  dir,
+		sh:          shell.NewShell(host),
+	}
 }
 
-func waitForService(sh *shell.Shell) {
+func (wire *WireSub) WaitForService() {
 	// wait for ipfs service to come online
 	for {
 		log.Println("checking if ipfs is up")
-		if sh.IsUp() {
+		if wire.sh.IsUp() {
 			log.Println("ready to go!")
 			break
 		}
@@ -40,52 +88,24 @@ func waitForService(sh *shell.Shell) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	err := sh.FilesMkdir(ctx, curatedDir, shell.FilesMkdir.Parents(true))
+	err := wire.sh.FilesMkdir(ctx, wire.CuratedDir, shell.FilesMkdir.Parents(true))
 	if err != nil {
 		log.Printf("error creating curated dir: %s\n", err)
 	}
 
-	log.Printf("curated dir created: %s\n", curatedDir)
+	log.Printf("curated dir created: %s\n", wire.CuratedDir)
 }
 
-type newArticle struct {
-	Name string `json:"name"`
-	CID  string `json:"cid"`
-}
+func (wire *WireSub) SubscribeLoop() {
 
-func curateArticle(sh *shell.Shell, article newArticle) {
-	ipfsPath := path.Join("/ipfs", article.CID)
-	localPath := path.Join(curatedDir, article.Name)
-	log.Printf("got new article, copying from: %s to: %s\n", ipfsPath, localPath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	err := sh.FilesCp(ctx, ipfsPath, localPath)
-	if err != nil {
-		log.Printf("error copying: %s\n", err)
-		return
-	}
-
-	log.Println("article copy complete")
-
-}
-
-func wireSubscribeLoop(sh *shell.Shell) {
-	wire_topic := os.Getenv("DBRANCH_WIRE")
-
-	if wire_topic == "" {
-		wire_topic = "dbranch-wire"
-	}
-
-	subscription, err := sh.PubSubSubscribe(wire_topic)
+	subscription, err := wire.sh.PubSubSubscribe(wire.WireChannel)
 	if err != nil {
 		panic(err)
 	}
 
 	defer subscription.Cancel()
 
-	log.Printf("subscribed to wire channel: %s\n", wire_topic)
+	log.Printf("subscribed to wire channel: %s\n", wire.WireChannel)
 
 	for {
 		msg, err := subscription.Next()
@@ -93,10 +113,10 @@ func wireSubscribeLoop(sh *shell.Shell) {
 			panic(err)
 		}
 
-		article := newArticle{}
+		article := Article{}
 		err = json.Unmarshal([]byte(msg.Data), &article)
 		if err == nil {
-			curateArticle(sh, article)
+			article.addToCurated(wire)
 		} else {
 			// not a new article, log incoming msg
 			log.Printf("error decoding incoming msg: %s\n", err)
@@ -107,11 +127,11 @@ func wireSubscribeLoop(sh *shell.Shell) {
 }
 
 func main() {
-	sh := getShell()
+	wire := WireSubFromEnv()
 
-	waitForService(sh)
+	wire.WaitForService()
 
-	wireSubscribeLoop(sh)
+	wire.SubscribeLoop()
 
 	log.Println("exiting 0")
 }
