@@ -8,7 +8,7 @@ import (
 	"path"
 	"time"
 
-	shell "github.com/ipfs/go-ipfs-api"
+	ipfs "github.com/ipfs/go-ipfs-api"
 )
 
 //
@@ -20,15 +20,15 @@ type Article struct {
 	CID  string `json:"cid"`
 }
 
-func (a *Article) addToCurated(w *WireSub) {
+func (a *Article) addToCurated(wire *WireSub) {
 	ipfsPath := path.Join("/ipfs", a.CID)
-	localPath := path.Join(w.CuratedDir, a.Name)
+	localPath := path.Join(wire.CuratedDir, a.Name)
 	log.Printf("got new article, copying from: %s to: %s\n", ipfsPath, localPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	err := w.sh.FilesCp(ctx, ipfsPath, localPath)
+	err := wire.sh.FilesCp(ctx, ipfsPath, localPath)
 	if err != nil {
 		log.Printf("error copying: %s\n", err)
 		return
@@ -46,7 +46,7 @@ type WireSub struct {
 	IpfsHost    string
 	WireChannel string
 	CuratedDir  string
-	sh          *shell.Shell
+	sh          *ipfs.Shell
 }
 
 func WireSubFromEnv() *WireSub {
@@ -69,14 +69,14 @@ func WireSubFromEnv() *WireSub {
 		IpfsHost:    host,
 		WireChannel: wire,
 		CuratedDir:  dir,
-		sh:          shell.NewShell(host),
+		sh:          ipfs.NewShell(host),
 	}
 }
 
 func (wire *WireSub) WaitForService() {
 	// wait for ipfs service to come online
 	for {
-		log.Println("checking if ipfs is up")
+		log.Printf("checking if ipfs is up: %s\n", wire.IpfsHost)
 		if wire.sh.IsUp() {
 			log.Println("ready to go!")
 			break
@@ -88,7 +88,7 @@ func (wire *WireSub) WaitForService() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	err := wire.sh.FilesMkdir(ctx, wire.CuratedDir, shell.FilesMkdir.Parents(true))
+	err := wire.sh.FilesMkdir(ctx, wire.CuratedDir, ipfs.FilesMkdir.Parents(true))
 	if err != nil {
 		log.Printf("error creating curated dir: %s\n", err)
 	}
