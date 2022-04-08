@@ -23,7 +23,6 @@ type Article struct {
 func (a *Article) addToCurated(wire *WireSub) error {
 	ipfsPath := path.Join("/ipfs", a.CID)
 	localPath := path.Join(wire.CuratedDir, a.Name)
-	log.Printf("processing new article: %s\n", a.CID)
 
 	//
 	// stat file to determine if we have it already and how to proceed
@@ -78,14 +77,73 @@ func (a *Article) addToCurated(wire *WireSub) error {
 }
 
 //
+// peer allow list
+//
+
+type PeerAllowList struct {
+	AllowedPeers []string `json:"allowed_peers"`
+}
+
+func (peers *PeerAllowList) PeerIsAllowed(peerId string) bool {
+	if len(peers.AllowedPeers) == 0 {
+		// empty list implies all peers are allowed
+		return true
+	}
+
+	for _, p := range peers.AllowedPeers {
+		if p == peerId {
+			return true
+		}
+	}
+	return false
+}
+
+func LoadPeerAllowFile(path string) (*PeerAllowList, error) {
+	var peers PeerAllowList
+	f, err := os.Open(path)
+	defer f.Close()
+
+	if err != nil {
+		return &peers, err
+	}
+
+	err = json.NewDecoder(f).Decode(&peers)
+	if err != nil {
+		return &peers, err
+	}
+
+	return &peers, nil
+}
+
+//
 // wire
 //
 
 type WireSub struct {
-	IpfsHost    string
-	WireChannel string
-	CuratedDir  string
-	sh          *ipfs.Shell
+	IpfsHost           string
+	WireChannel        string
+	CuratedDir         string
+	Peers              *PeerAllowList
+	AllowEmptyPeerList bool
+	sh                 *ipfs.Shell
+}
+
+func NewWireSub(host, wire, dir, peerAllowFile string, allowEmptyPeerList bool) *WireSub {
+	peers, err := LoadPeerAllowFile(peerAllowFile)
+	if err != nil {
+		log.Printf("error loading peer allow list: %s\n", err)
+	} else {
+		log.Printf("loaded %d allowed peer(s) from: %s\n", len(peers.AllowedPeers), peerAllowFile)
+	}
+
+	return &WireSub{
+		IpfsHost:           host,
+		WireChannel:        wire,
+		CuratedDir:         dir,
+		Peers:              peers,
+		AllowEmptyPeerList: allowEmptyPeerList,
+		sh:                 ipfs.NewShell(host),
+	}
 }
 
 func WireSubFromEnv() *WireSub {
@@ -104,11 +162,22 @@ func WireSubFromEnv() *WireSub {
 		dir = "/dBranch/curated"
 	}
 
-	return &WireSub{
-		IpfsHost:    host,
-		WireChannel: wire,
-		CuratedDir:  dir,
-		sh:          ipfs.NewShell(host),
+	peerAllowFile := os.Getenv("DBRANCH_PEER_ALLOW_LIST")
+	if peerAllowFile == "" {
+		peerAllowFile = "./peer-allow-list.json"
+	}
+
+	allowEmptyPeerList := false
+	if os.Getenv("DBRANCH_ALLOW_EMPTY_PEER_LIST") == "true" {
+		allowEmptyPeerList = true
+	}
+
+	return NewWireSub(host, wire, dir, peerAllowFile, allowEmptyPeerList)
+}
+
+func (wire *WireSub) VerifyCanRun() {
+	if !wire.AllowEmptyPeerList && len(wire.Peers.AllowedPeers) == 0 {
+		log.Panic("empty peer list is not allowed, set env variable DBRANCH_ALLOW_EMPTY_PEER_LIST='true' to allow")
 	}
 }
 
@@ -164,10 +233,19 @@ func (wire *WireSub) SubscribeLoop() {
 			continue
 		}
 
-		// attempt to add article to local curated dir
-		err = article.addToCurated(wire)
-		if err != nil {
-			log.Printf("error adding article to curated list: %s\n", err)
+		peer := msg.From.String()
+
+		log.Printf("processing new article: %s from peer: %s\n", article.CID, peer)
+
+		// check if peer is allowed to publish this article
+		if wire.Peers.PeerIsAllowed(peer) {
+			// attempt to add article to local curated dir
+			err = article.addToCurated(wire)
+			if err != nil {
+				log.Printf("error adding article to curated list: %s\n", err)
+			}
+		} else {
+			log.Printf("peer: %s is not in allowed peers list\n", msg.From)
 		}
 
 	}
@@ -175,6 +253,8 @@ func (wire *WireSub) SubscribeLoop() {
 
 func main() {
 	wire := WireSubFromEnv()
+
+	wire.VerifyCanRun()
 
 	wire.WaitForService()
 
