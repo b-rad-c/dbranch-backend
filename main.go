@@ -20,22 +20,61 @@ type Article struct {
 	CID  string `json:"cid"`
 }
 
-func (a *Article) addToCurated(wire *WireSub) {
+func (a *Article) addToCurated(wire *WireSub) error {
 	ipfsPath := path.Join("/ipfs", a.CID)
 	localPath := path.Join(wire.CuratedDir, a.Name)
-	log.Printf("got new article, copying from: %s to: %s\n", ipfsPath, localPath)
+	log.Printf("processing new article: %s\n", a.CID)
+
+	//
+	// stat file to determine if we have it already and how to proceed
+	//
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	stat, err := wire.sh.FilesStat(ctx, localPath)
 
-	err := wire.sh.FilesCp(ctx, ipfsPath, localPath)
-	if err != nil {
-		log.Printf("error copying: %s\n", err)
-		return
+	if err != nil && err.Error() != "files/stat: file does not exist" {
+		return err
 	}
 
-	log.Println("article copy complete")
+	if stat != nil {
+		if stat.Hash == a.CID {
+			// if we already have the same hash in our curated dir, don't copy
+			log.Printf("already have article: %s with hash %s\n", a.Name, a.CID)
+			return nil
+		} else {
+			// hash is different, replace existing article
+			log.Printf("replacing article: %s with newer hash %s\n", a.Name, a.CID)
+			ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			err = wire.sh.FilesRm(ctx, localPath, true)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
+	//
+	// copy article to ipfs files (mfs)
+	//
+
+	log.Printf("copying article from: %s to: %s\n", ipfsPath, localPath)
+	ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err = wire.sh.FilesCp(ctx, ipfsPath, localPath); err != nil {
+		return err
+	}
+
+	// pin article, this is necessary to store the entire file contents locally
+	// because FilesCp does not copy the entire contents of the file, just the root node of the DAG
+	log.Println("pinning article to local node")
+	if err = wire.sh.Pin(a.CID); err != nil {
+		return err
+	}
+
+	log.Println("article successfully added to curated list")
+	return nil
 }
 
 //
@@ -98,29 +137,37 @@ func (wire *WireSub) WaitForService() {
 
 func (wire *WireSub) SubscribeLoop() {
 
+	// setup pubsub subscription
 	subscription, err := wire.sh.PubSubSubscribe(wire.WireChannel)
 	if err != nil {
 		panic(err)
 	}
 
 	defer subscription.Cancel()
-
 	log.Printf("subscribed to wire channel: %s\n", wire.WireChannel)
 
+	// enter infinite loop
 	for {
+		// wait for new message &  attempt to decode json
 		msg, err := subscription.Next()
 		if err != nil {
-			panic(err)
+			log.Panic(err)
 		}
 
 		article := Article{}
 		err = json.Unmarshal([]byte(msg.Data), &article)
-		if err == nil {
-			article.addToCurated(wire)
-		} else {
-			// not a new article, log incoming msg
+
+		// cannot decode json, not a new article, log incoming msg and move on
+		if err != nil {
 			log.Printf("error decoding incoming msg: %s\n", err)
 			log.Printf("raw msg: %s\n", msg.Data)
+			continue
+		}
+
+		// attempt to add article to local curated dir
+		err = article.addToCurated(wire)
+		if err != nil {
+			log.Printf("error adding article to curated list: %s\n", err)
 		}
 
 	}
