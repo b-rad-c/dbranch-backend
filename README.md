@@ -5,5 +5,7 @@ The backend code for the dbranch node. It is a work in progress and will have mo
 ### configuration
 Configuration is done through the following environment variables:
 `IPFS_HOST` - the address of the local ipfs node, default: `localhost:5001`
+
 `DBRANCH_WIRE_CHANNEL` - the IPFS pubsub topic to listen for new articles on, default: `dbranch-wire`
+
 `DBRANCH_CURATED_DIRECTORY` - the IPFS files directory to copy curated articles into, default: `/dBranch/curated`
