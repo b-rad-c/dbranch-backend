@@ -14,7 +14,7 @@ type Article struct {
 
 func (a *Article) addToCurated(wire *WireSub) error {
 	ipfsPath := path.Join("/ipfs", a.CID)
-	localPath := path.Join(wire.CuratedDir, a.Name)
+	localPath := path.Join(wire.Conf.CuratedDir, a.Name)
 
 	//
 	// stat file to determine if we have it already and how to proceed
