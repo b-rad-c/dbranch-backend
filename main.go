@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -16,51 +17,39 @@ func main() {
 		Usage:   "Curate articles from the dBranch news protocol",
 		Version: "1.0.0",
 		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "allow-empty-peer-list",
-				Usage: "If true curator will curate all articles received over wire",
-				Value: false,
-			},
 			&cli.StringFlag{
-				Name:  "curated-dir",
-				Usage: "The ipfs mfs path to copy curated articles into",
-				Value: "/dBranch/curated",
-			},
-			&cli.StringFlag{
-				Name:  "ipfs-host",
-				Usage: "The address for the local ipfs node",
-				Value: "localhost:5001",
-			},
-			&cli.StringFlag{
-				Name:    "log-path",
-				Aliases: []string{"log"},
-				Usage:   "The log path to use or '-' for stdout",
-				Value:   "-",
-			},
-			&cli.StringFlag{
-				Name:  "peer-file",
-				Usage: "The json file to parse for allowed peers",
-				Value: "./peer-allow-list.json",
-			},
-			&cli.StringFlag{
-				Name:  "wire-channel",
-				Usage: "The ipfs pubsub topic subscribe to for new articles",
-				Value: "dbranch-wire",
+				Name:    "config",
+				Aliases: []string{"c"},
+				Usage:   "The path to the dbranch config file",
+				Value:   "~/.dbranch/config.json",
 			},
 		},
 		Commands: []*cli.Command{
 			{
 				Name:  "peers",
-				Usage: "See/edit peer list",
-				Action: func(c *cli.Context) error {
-					return peers(dbranch.ConfigFromCLI(c))
+				Usage: "show or edit the allowed peers list, run with args 'peers help' for more info",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "show",
+						Usage: "print the peer list",
+						Action: func(cli *cli.Context) error {
+							return peers(cli, "show")
+						},
+					},
+					{
+						Name:  "add",
+						Usage: "add one or more peers to the list",
+						Action: func(cli *cli.Context) error {
+							return peers(cli, "add")
+						},
+					},
 				},
 			},
 			{
 				Name:  "run",
 				Usage: "Run the curator daemon",
-				Action: func(c *cli.Context) error {
-					return runCurator(dbranch.ConfigFromCLI(c))
+				Action: func(cli *cli.Context) error {
+					return runCuratorService(cli)
 				},
 			},
 		},
@@ -73,39 +62,59 @@ func main() {
 
 }
 
-func peers(config *dbranch.Config) error {
-	peers, err := dbranch.LoadPeerAllowFile(config.PeerFilePath)
+func peers(cli *cli.Context, command string) error {
+	configPath := cli.String("config")
+
+	config, err := dbranch.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("showing %d peer(s) from file: %s\n", len(peers.AllowedPeers), config.PeerFilePath)
 
-	for index, peerId := range peers.AllowedPeers {
-		fmt.Printf("%d) %s\n", index+1, peerId)
+	if command == "show" {
+		// if no command, print peers
+		fmt.Printf("showing %d peer(s)\n", len(config.AllowedPeers))
+
+		for index, peerId := range config.AllowedPeers {
+			fmt.Printf("%d) %s\n", index+1, peerId)
+		}
+
+		return nil
+
+	} else if command == "add" {
+		newPeers := cli.Args().Slice()
+		if len(newPeers) == 0 {
+			return errors.New("no peers specified")
+		}
+
+		config.AllowedPeers = append(config.AllowedPeers, newPeers...)
+		dbranch.WriteConfig(configPath, config)
+
+		fmt.Printf("added %d peer(s)\n", len(newPeers))
+
+	} else {
+		return errors.New("invalid argument: " + command)
 	}
+
 	return nil
 }
 
-func runCurator(config *dbranch.Config) error {
-	if config.LogPath != "-" {
-		logFile, err := os.OpenFile(config.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-		if err != nil {
-			return err
-		}
-		defer logFile.Close()
+func runCuratorService(cli *cli.Context) error {
 
-		log.SetOutput(logFile)
+	config, err := dbranch.LoadConfig(cli.String("config"))
+	if err != nil {
+		return err
 	}
 
-	wire := dbranch.NewWireSub(config)
+	wire := dbranch.NewCuratorService(config)
 
-	wire.VerifyCanRun()
+	err = wire.Setup()
+	if err != nil {
+		return err
+	}
 
-	wire.WaitForService()
+	wire.WaitForIPFS()
 
 	wire.SubscribeLoop()
-
-	log.Println("exiting 0")
 
 	return nil
 }

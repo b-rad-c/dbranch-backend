@@ -3,43 +3,49 @@ package dbranch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
+	"os"
 	"time"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
 )
 
-type WireSub struct {
-	Conf  *Config
-	Peers *PeerAllowList
-	Shell *ipfs.Shell
+type CuratorService struct {
+	Config *Config
+	Shell  *ipfs.Shell
 }
 
-func NewWireSub(config *Config) *WireSub {
-	peers, err := LoadPeerAllowFile(config.PeerFilePath)
-	if err != nil {
-		log.Printf("error loading peer allow list: %s\n", err)
-	} else {
-		log.Printf("loaded %d allowed peer(s) from: %s\n", len(peers.AllowedPeers), config.PeerFilePath)
-	}
-
-	return &WireSub{
-		Conf:  config,
-		Peers: peers,
-		Shell: ipfs.NewShell(config.IpfsHost),
+func NewCuratorService(config *Config) *CuratorService {
+	return &CuratorService{
+		Config: config,
+		Shell:  ipfs.NewShell(config.IpfsHost),
 	}
 }
 
-func (wire *WireSub) VerifyCanRun() {
-	if !wire.Conf.AllowEmptyPeerList && len(wire.Peers.AllowedPeers) == 0 {
-		log.Panic("empty peer list is not allowed, set env variable DBRANCH_ALLOW_EMPTY_PEER_LIST='true' to allow")
+func (wire *CuratorService) Setup() error {
+	if wire.Config.LogPath != "-" {
+		logFile, err := os.OpenFile(wire.Config.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			return err
+		}
+		defer logFile.Close()
+
+		log.SetOutput(logFile)
 	}
+
+	log.Printf("allow empty: %v, num peers: %d\n", wire.Config.AllowEmptyPeerList, len(wire.Config.AllowedPeers))
+	if !wire.Config.AllowEmptyPeerList && len(wire.Config.AllowedPeers) == 0 {
+		return errors.New("empty peer list is not allowed, set config value 'allow_empty_peer_list' to 'true' or add peers")
+	}
+
+	return nil
 }
 
-func (wire *WireSub) WaitForService() {
+func (wire *CuratorService) WaitForIPFS() {
 	// wait for ipfs service to come online
 	for {
-		log.Printf("checking if ipfs is up: %s\n", wire.Conf.IpfsHost)
+		log.Printf("checking if ipfs is up: %s\n", wire.Config.IpfsHost)
 		if wire.Shell.IsUp() {
 			log.Println("ready to go!")
 			break
@@ -51,24 +57,24 @@ func (wire *WireSub) WaitForService() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	err := wire.Shell.FilesMkdir(ctx, wire.Conf.CuratedDir, ipfs.FilesMkdir.Parents(true))
+	err := wire.Shell.FilesMkdir(ctx, wire.Config.CuratedDir, ipfs.FilesMkdir.Parents(true))
 	if err != nil {
 		log.Printf("error creating curated dir: %s\n", err)
 	}
 
-	log.Printf("curated dir created: %s\n", wire.Conf.CuratedDir)
+	log.Printf("curated dir created: %s\n", wire.Config.CuratedDir)
 }
 
-func (wire *WireSub) SubscribeLoop() {
+func (wire *CuratorService) SubscribeLoop() {
 
 	// setup pubsub subscription
-	subscription, err := wire.Shell.PubSubSubscribe(wire.Conf.WireChannel)
+	subscription, err := wire.Shell.PubSubSubscribe(wire.Config.WireChannel)
 	if err != nil {
 		panic(err)
 	}
 
 	defer subscription.Cancel()
-	log.Printf("subscribed to wire channel: %s\n", wire.Conf.WireChannel)
+	log.Printf("subscribed to wire channel: %s\n", wire.Config.WireChannel)
 
 	// enter infinite loop
 	for {
@@ -94,9 +100,9 @@ func (wire *WireSub) SubscribeLoop() {
 		log.Printf("processing new article: %s from peer: %s\n", article.CID, peer)
 
 		// check if peer is allowed to publish this article
-		if wire.Peers.PeerIsAllowed(peer) {
+		if wire.Config.PeerIsAllowed(peer) {
 			// attempt to add article to local curated dir
-			err = article.addToCurated(wire)
+			err = article.AddToCurated(wire)
 			if err != nil {
 				log.Printf("error adding article to curated list: %s\n", err)
 			}
