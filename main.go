@@ -21,7 +21,7 @@ func main() {
 				Name:    "config",
 				Aliases: []string{"c"},
 				Usage:   "The path to the dbranch config file",
-				Value:   "~/.dbranch/config.json",
+				Value:   dbranch.DefaultConfigPath(),
 			},
 		},
 		Commands: []*cli.Command{

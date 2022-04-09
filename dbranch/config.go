@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/user"
+	"path"
 )
 
 type Config struct {
@@ -28,8 +30,19 @@ func DefaultConfig() *Config {
 	}
 }
 
-func WriteConfig(path string, config *Config) error {
-	f, err := os.Create(path)
+func DefaultConfigPath() string {
+	user, _ := user.Current()
+	return path.Join(user.HomeDir, ".dbranch/config.json")
+}
+
+func WriteConfig(configPath string, config *Config) error {
+
+	if configPath == DefaultConfigPath() {
+		dir, _ := path.Split(configPath)
+		os.MkdirAll(dir, 0755)
+	}
+
+	f, err := os.Create(configPath)
 	defer f.Close()
 
 	if err != nil {
