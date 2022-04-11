@@ -54,21 +54,21 @@ func WriteConfig(configPath string, config *Config) error {
 	return encoder.Encode(config)
 }
 
-func LoadConfig(path string) (*Config, error) {
+func LoadConfig(configPath string) (*Config, error) {
 	var config Config
-	f, err := os.Open(path)
+	f, err := os.Open(configPath)
 	defer f.Close()
 
 	// if config file doesn't exist, create default config
 	if errors.Is(err, fs.ErrNotExist) {
 		config = *DefaultConfig()
 
-		err = WriteConfig(path, &config)
+		err = WriteConfig(configPath, &config)
 		if err != nil {
 			return &config, errors.New("error creating default config file: " + err.Error())
 		}
 
-		fmt.Printf("created default config file at: %s\n", path)
+		fmt.Printf("created default config file at: %s\n", configPath)
 		return &config, nil
 
 	} else if err != nil {
@@ -77,7 +77,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	err = json.NewDecoder(f).Decode(&config)
 	if err != nil {
-		return &config, err
+		return &config, errors.New("error decoding config file: " + err.Error())
 	}
 
 	return &config, nil

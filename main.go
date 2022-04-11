@@ -15,7 +15,7 @@ func main() {
 	app := &cli.App{
 		Name:    "dBranch Backend",
 		Usage:   "Curate articles from the dBranch news protocol",
-		Version: "1.0.0",
+		Version: "0.1.0",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "config",

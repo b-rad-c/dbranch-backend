@@ -1,5 +1,0 @@
-2022/04/08 19:48:22 loaded 1 allowed peer(s) from: ./peer-allow-list.json
-2022/04/08 19:48:22 checking if ipfs is up: localhost:5001
-2022/04/08 19:48:22 ready to go!
-2022/04/08 19:48:22 curated dir created: /dBranch/curated
-2022/04/08 19:48:22 subscribed to wire channel: dbranch-wire
