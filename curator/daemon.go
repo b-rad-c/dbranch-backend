@@ -1,4 +1,4 @@
-package dbranch
+package curator
 
 import (
 	"context"
@@ -6,24 +6,96 @@ import (
 	"errors"
 	"log"
 	"os"
+	"path"
 	"time"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
 )
 
-type CuratorService struct {
+//
+// incoming article from wire
+//
+
+type IncomingArticle struct {
+	Name string `json:"name"`
+	CID  string `json:"cid"`
+}
+
+func (a *IncomingArticle) AddToCurated(wire *CuratorDaemon) error {
+	ipfsPath := path.Join("/ipfs", a.CID)
+	localPath := path.Join(wire.Config.CuratedDir, a.Name)
+
+	//
+	// stat file to determine if we have it already and how to proceed
+	//
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	stat, err := wire.Shell.FilesStat(ctx, localPath)
+
+	if err != nil && err.Error() != "files/stat: file does not exist" {
+		return err
+	}
+
+	if stat != nil {
+		log.Printf("stat hash: %s\n article cid: %s", stat.Hash, a.CID)
+
+		if stat.Hash == a.CID {
+			// if we already have the same hash in our curated dir, don't copy
+			log.Printf("already have article: %s with hash %s\n", a.Name, a.CID)
+			return nil
+		} else {
+			// hash is different, replace existing article
+			log.Printf("replacing article: %s with newer hash %s\n", a.Name, a.CID)
+			ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			err = wire.Shell.FilesRm(ctx, localPath, true)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	//
+	// copy article to ipfs files (mfs)
+	//
+
+	log.Printf("copying article from: %s to: %s\n", ipfsPath, localPath)
+	ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err = wire.Shell.FilesCp(ctx, ipfsPath, localPath); err != nil {
+		return err
+	}
+
+	// pin article, this is necessary to store the entire file contents locally
+	// because FilesCp does not copy the entire contents of the file, just the root node of the DAG
+	log.Println("pinning article to local node")
+	if err = wire.Shell.Pin(a.CID); err != nil {
+		return err
+	}
+
+	log.Println("article successfully added to curated list")
+	return nil
+}
+
+//
+// curator wire daemon
+//
+
+type CuratorDaemon struct {
 	Config *Config
 	Shell  *ipfs.Shell
 }
 
-func NewCuratorService(config *Config) *CuratorService {
-	return &CuratorService{
+func NewCuratorDaemon(config *Config) *CuratorDaemon {
+	return &CuratorDaemon{
 		Config: config,
 		Shell:  ipfs.NewShell(config.IpfsHost),
 	}
 }
 
-func (wire *CuratorService) Setup() error {
+func (wire *CuratorDaemon) Setup() error {
 	if wire.Config.LogPath != "-" {
 		logFile, err := os.OpenFile(wire.Config.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
@@ -42,7 +114,7 @@ func (wire *CuratorService) Setup() error {
 	return nil
 }
 
-func (wire *CuratorService) WaitForIPFS() {
+func (wire *CuratorDaemon) WaitForIPFS() {
 	// wait for ipfs service to come online
 	for {
 		log.Printf("checking if ipfs is up: %s\n", wire.Config.IpfsHost)
@@ -65,7 +137,7 @@ func (wire *CuratorService) WaitForIPFS() {
 	log.Printf("curated dir created: %s\n", wire.Config.CuratedDir)
 }
 
-func (wire *CuratorService) SubscribeLoop() {
+func (wire *CuratorDaemon) SubscribeLoop() {
 
 	// setup pubsub subscription
 	subscription, err := wire.Shell.PubSubSubscribe(wire.Config.WireChannel)
@@ -85,7 +157,7 @@ func (wire *CuratorService) SubscribeLoop() {
 			log.Panic(err)
 		}
 
-		article := Article{}
+		article := IncomingArticle{}
 		err = json.Unmarshal([]byte(msg.Data), &article)
 
 		// cannot decode json, not a new article, log incoming msg and move on

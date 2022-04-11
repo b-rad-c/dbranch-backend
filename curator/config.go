@@ -1,4 +1,4 @@
-package dbranch
+package curator
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ func DefaultConfig() *Config {
 
 func DefaultConfigPath() string {
 	user, _ := user.Current()
-	return path.Join(user.HomeDir, ".dbranch/config.json")
+	return path.Join(user.HomeDir, ".dbranch/curator.json")
 }
 
 func WriteConfig(configPath string, config *Config) error {
