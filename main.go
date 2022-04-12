@@ -33,14 +33,14 @@ func main() {
 						Name:  "show",
 						Usage: "print the peer list",
 						Action: func(cli *cli.Context) error {
-							return peers(cli, "show")
+							return peerCommand(cli, "show")
 						},
 					},
 					{
 						Name:  "add",
 						Usage: "add one or more peers to the list",
 						Action: func(cli *cli.Context) error {
-							return peers(cli, "add")
+							return peerCommand(cli, "add")
 						},
 					},
 				},
@@ -69,7 +69,7 @@ func main() {
 
 }
 
-func peers(cli *cli.Context, command string) error {
+func peerCommand(cli *cli.Context, command string) error {
 	configPath := cli.String("config")
 
 	config, err := curator.LoadConfig(configPath)
@@ -88,15 +88,13 @@ func peers(cli *cli.Context, command string) error {
 		return nil
 
 	} else if command == "add" {
-		newPeers := cli.Args().Slice()
-		if len(newPeers) == 0 {
-			return errors.New("no peers specified")
+		numAdded := config.AddPeers(cli.Args().Slice()...)
+		err = config.WriteConfig(configPath)
+		if err != nil {
+			return err
 		}
 
-		config.AllowedPeers = append(config.AllowedPeers, newPeers...)
-		curator.WriteConfig(configPath, config)
-
-		fmt.Printf("added %d peer(s)\n", len(newPeers))
+		fmt.Printf("added %d peer(s)\n", numAdded)
 
 	} else {
 		return errors.New("invalid argument: " + command)
@@ -112,16 +110,12 @@ func runCuratorDaemon(cli *cli.Context) error {
 		return err
 	}
 
-	wire := curator.NewCuratorDaemon(config)
-
-	err = wire.Setup()
+	daemon, err := curator.NewCuratorDaemon(config)
 	if err != nil {
 		return err
 	}
 
-	wire.WaitForIPFS()
-
-	wire.SubscribeLoop()
+	daemon.SubscribeLoop()
 
 	return nil
 }

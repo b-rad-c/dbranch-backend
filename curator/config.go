@@ -35,7 +35,36 @@ func DefaultConfigPath() string {
 	return path.Join(user.HomeDir, ".dbranch/curator.json")
 }
 
-func WriteConfig(configPath string, config *Config) error {
+func LoadConfig(configPath string) (*Config, error) {
+	var config Config
+	f, err := os.Open(configPath)
+	defer f.Close()
+
+	// if config file doesn't exist, create default config
+	if errors.Is(err, fs.ErrNotExist) {
+		config = *DefaultConfig()
+
+		err = config.WriteConfig(configPath)
+		if err != nil {
+			return &config, errors.New("error creating default config file: " + err.Error())
+		}
+
+		fmt.Printf("created default config file at: %s\n", configPath)
+		return &config, nil
+
+	} else if err != nil {
+		return &config, errors.New("error loading config file: " + err.Error())
+	}
+
+	err = json.NewDecoder(f).Decode(&config)
+	if err != nil {
+		return &config, errors.New("error decoding config file: " + err.Error())
+	}
+
+	return &config, nil
+}
+
+func (config *Config) WriteConfig(configPath string) error {
 
 	if configPath == DefaultConfigPath() {
 		dir, _ := path.Split(configPath)
@@ -54,33 +83,13 @@ func WriteConfig(configPath string, config *Config) error {
 	return encoder.Encode(config)
 }
 
-func LoadConfig(configPath string) (*Config, error) {
-	var config Config
-	f, err := os.Open(configPath)
-	defer f.Close()
+//
+// peer ops
+//
 
-	// if config file doesn't exist, create default config
-	if errors.Is(err, fs.ErrNotExist) {
-		config = *DefaultConfig()
-
-		err = WriteConfig(configPath, &config)
-		if err != nil {
-			return &config, errors.New("error creating default config file: " + err.Error())
-		}
-
-		fmt.Printf("created default config file at: %s\n", configPath)
-		return &config, nil
-
-	} else if err != nil {
-		return &config, errors.New("error loading config file: " + err.Error())
-	}
-
-	err = json.NewDecoder(f).Decode(&config)
-	if err != nil {
-		return &config, errors.New("error decoding config file: " + err.Error())
-	}
-
-	return &config, nil
+func (config *Config) AddPeers(peerIds ...string) int {
+	config.AllowedPeers = append(config.AllowedPeers, peerIds...)
+	return len(peerIds)
 }
 
 func (config *Config) PeerIsAllowed(peerId string) bool {
