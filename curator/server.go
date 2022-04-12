@@ -52,9 +52,6 @@ func NewCuratorServer(config *Config) *echo.Echo {
 	curator := NewCurator(config)
 	server.Use(curator.middleWare)
 
-	server.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "Hello, World!")
-	})
 	server.GET("/article/list", curator.articleList)
 	server.GET("/article/:name", curator.articleGet)
 	server.GET("/*", func(c echo.Context) error {

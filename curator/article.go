@@ -118,6 +118,14 @@ func (c *Curator) AddToCurated(in *IncomingArticle) error {
 	return nil
 }
 
+func (c *Curator) RemoveFromCurated(name string) error {
+	articlePath := path.Join(c.Config.CuratedDir, name)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return c.Shell.FilesRm(ctx, articlePath, true)
+}
+
 func (c *Curator) ListArticles() (*ArticleList, error) {
 	// init
 	list := &ArticleList{}

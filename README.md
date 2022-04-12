@@ -7,41 +7,9 @@ The backend code for the dbranch node. It is a work in progress and will have mo
 Your IPFS node needs to be started with the `--enable-pubsub-experiment` flag, [see here for more](ipns://docs.ipfs.io/reference/cli/#ipfs-pubsub)
 
 ### cli
+This project is still in alpha phase, run the followin command to see the current cli options
 
-    NAME:
-        dBranch Backend - Curate articles from the dBranch news protocol
-
-    USAGE:
-        dBranch Backend [global options] command [command options] [arguments...]
-
-    VERSION:
-        1.0.0
-
-    COMMANDS:
-        peers    show or edit the allowed peers list, run with args 'peers help' for more info
-        run      Run the curator daemon
-        help, h  Shows a list of commands or help for one command
-
-    GLOBAL OPTIONS:
-        --config value, -c value  The path to the dbranch config file (default: "/Users/brad/.dbranch/config.json")
-        --help, -h                show help (default: false)
-        --version, -v             print the version (default: false)
-
-##### cli - peers command
-
-    NAME:
-        dBranch Backend peers - show or edit the allowed peers list, run with args 'peers help' for more info
-
-    USAGE:
-        dBranch Backend peers [global options] command [command options] [arguments...]
-
-    COMMANDS:
-        show     print the peer list
-        add      add one or more peers to the list
-        help, h  Shows a list of commands or help for one command
-
-    GLOBAL OPTIONS:
-        --help, -h  show help (default: false)
+    go run main.go help
 
 
 ### configuration
