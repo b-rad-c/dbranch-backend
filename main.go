@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,10 @@ import (
 	curator "github.com/b-rad-c/dbranch-backend/curator"
 	"github.com/urfave/cli/v2"
 )
+
+//
+// cli interface
+//
 
 func main() {
 
@@ -26,19 +31,54 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
+				Name:  "article",
+				Usage: "interact with articles, run with no arguments to see available sub commands",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "add",
+						Usage: "article add <article_name> <article cid> // add article to curated list",
+						Action: func(cli *cli.Context) error {
+							return articleCommand(cli, "add")
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "article remove <article_name>            // remove an article from curated list",
+						Action: func(cli *cli.Context) error {
+							return articleCommand(cli, "remove")
+						},
+					},
+					{
+						Name:  "get",
+						Usage: "article get <article_name>               // get an article as json",
+						Action: func(cli *cli.Context) error {
+							return articleCommand(cli, "get")
+						},
+					},
+					{
+						Name:  "list",
+						Usage: "article list                             // list curated articles",
+						Action: func(cli *cli.Context) error {
+							return articleCommand(cli, "list")
+						},
+					},
+				},
+			},
+			{
 				Name:  "peers",
 				Usage: "show or edit the allowed peers list, run with args 'peers help' for more info",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "show",
-						Usage: "print the peer list",
+						Name:        "show",
+						Usage:       "peers show                           // show the allowed peers list",
+						Description: "",
 						Action: func(cli *cli.Context) error {
 							return peerCommand(cli, "show")
 						},
 					},
 					{
 						Name:  "add",
-						Usage: "add one or more peers to the list",
+						Usage: "peers add <peer_id> <peer_id> ...    // add one or more peers to the list",
 						Action: func(cli *cli.Context) error {
 							return peerCommand(cli, "add")
 						},
@@ -49,14 +89,14 @@ func main() {
 				Name:  "daemon",
 				Usage: "Run the curator daemon",
 				Action: func(cli *cli.Context) error {
-					return runCuratorDaemon(cli)
+					return daemonCommand(cli)
 				},
 			},
 			{
 				Name:  "serve",
 				Usage: "Serve curated articles over HTTP",
 				Action: func(cli *cli.Context) error {
-					return runCuratorServer(cli)
+					return serverCommand(cli)
 				},
 			},
 		},
@@ -69,7 +109,78 @@ func main() {
 
 }
 
-func peerCommand(cli *cli.Context, command string) error {
+//
+// command logic
+//
+
+func articleCommand(cli *cli.Context, sub_cmd string) error {
+	config, err := curator.LoadConfig(cli.String("config"))
+	if err != nil {
+		return err
+	}
+
+	app := curator.NewCurator(config)
+
+	args := cli.Args().Slice()
+
+	if sub_cmd == "add" {
+
+		if len(args) < 2 {
+			return errors.New("did not supply article name and cid")
+		}
+
+		err = app.AddToCurated(&curator.IncomingArticle{Name: args[0], CID: args[1]})
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("added %s to curated list from cid: %s\n", args[0], args[1])
+
+	} else if sub_cmd == "remove" {
+
+		if len(args) < 1 {
+			return errors.New("did not supply article name")
+		}
+
+		err = app.RemoveFromCurated(args[0])
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("removed %s from curated list\n", args[0])
+
+	} else if sub_cmd == "list" {
+		list, err := app.ListArticles()
+		if err != nil {
+			return err
+		}
+		for index, article := range list.Items {
+			fmt.Printf("%d) %s\n", index+1, article.Name)
+		}
+
+	} else if sub_cmd == "get" {
+
+		if len(args) < 1 {
+			return errors.New("did not supply article name")
+		}
+
+		article, err := app.GetArticle(args[0])
+		if err != nil {
+			return err
+		}
+
+		data, err := json.MarshalIndent(article, "", "    ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+
+	}
+
+	return nil
+}
+
+func peerCommand(cli *cli.Context, sub_cmd string) error {
 	configPath := cli.String("config")
 
 	config, err := curator.LoadConfig(configPath)
@@ -77,7 +188,7 @@ func peerCommand(cli *cli.Context, command string) error {
 		return err
 	}
 
-	if command == "show" {
+	if sub_cmd == "show" {
 		// if no command, print peers
 		fmt.Printf("showing %d peer(s)\n", len(config.AllowedPeers))
 
@@ -87,7 +198,7 @@ func peerCommand(cli *cli.Context, command string) error {
 
 		return nil
 
-	} else if command == "add" {
+	} else if sub_cmd == "add" {
 		numAdded := config.AddPeers(cli.Args().Slice()...)
 		err = config.WriteConfig(configPath)
 		if err != nil {
@@ -96,14 +207,12 @@ func peerCommand(cli *cli.Context, command string) error {
 
 		fmt.Printf("added %d peer(s)\n", numAdded)
 
-	} else {
-		return errors.New("invalid argument: " + command)
 	}
 
 	return nil
 }
 
-func runCuratorDaemon(cli *cli.Context) error {
+func daemonCommand(cli *cli.Context) error {
 
 	config, err := curator.LoadConfig(cli.String("config"))
 	if err != nil {
@@ -120,11 +229,7 @@ func runCuratorDaemon(cli *cli.Context) error {
 	return nil
 }
 
-//
-// server
-//
-
-func runCuratorServer(cli *cli.Context) error {
+func serverCommand(cli *cli.Context) error {
 
 	config, err := curator.LoadConfig(cli.String("config"))
 	if err != nil {
