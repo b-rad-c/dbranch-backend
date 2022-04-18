@@ -65,13 +65,46 @@ func main() {
 				},
 			},
 			{
+				Name:  "cardano",
+				Usage: "interact with cardano blockchain",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "network",
+						Usage: "cardano network                          // show cardano node network information",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "network")
+						},
+					},
+					{
+						Name:  "articles",
+						Usage: "cardano articles <wallet id>             // list articles for a given wallet",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "articles")
+						},
+					},
+					{
+						Name:  "transactions",
+						Usage: "cardano transactions <wallet id>             // list wallets for a given wallet",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "transactions")
+						},
+					},
+					{
+						Name:  "wallets",
+						Usage: "cardano wallets                          // list wallets",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "wallets")
+						},
+					},
+				},
+			},
+			{
 				Name:  "peers",
 				Usage: "show or edit the allowed peers list, run with args 'peers help' for more info",
 				Subcommands: []*cli.Command{
 					{
-						Name:        "show",
-						Usage:       "peers show                           // show the allowed peers list",
-						Description: "",
+						Name:  "show",
+						Usage: "peers show                           // show the allowed peers list",
 						Action: func(cli *cli.Context) error {
 							return peerCommand(cli, "show")
 						},
@@ -169,12 +202,59 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 			return err
 		}
 
-		data, err := json.MarshalIndent(article, "", "    ")
+		printJSON(article)
+
+	}
+
+	return nil
+}
+
+func cardanoCommand(cli *cli.Context, sub_cmd string) error {
+	config, err := curator.LoadConfig(cli.String("config"))
+	if err != nil {
+		return err
+	}
+
+	app := curator.NewCurator(config)
+	args := cli.Args().Slice()
+
+	if sub_cmd == "network" {
+		network, err := app.NetworkInformation()
 		if err != nil {
 			return err
 		}
-		fmt.Println(string(data))
 
+		printJSON(network)
+
+	} else if sub_cmd == "wallets" {
+		wallets, err := app.WalletIds()
+		if err != nil {
+			return err
+		}
+
+		for index, wallet := range wallets {
+			fmt.Printf("%d) %s\n", index+1, wallet)
+		}
+	} else if sub_cmd == "transactions" {
+		if len(args) < 1 {
+			return errors.New("did not supply wallet id")
+		}
+
+		transactions, err := app.WalletTransactions(args[0])
+		if err != nil {
+			return err
+		}
+		printJSON(transactions)
+	} else if sub_cmd == "articles" {
+		if len(args) < 1 {
+			return errors.New("did not supply wallet id")
+		}
+
+		articles, err := app.WalletArticles(args[0])
+		if err != nil {
+			return err
+		}
+		printJSON(articles)
 	}
 
 	return nil
@@ -240,4 +320,16 @@ func serverCommand(cli *cli.Context) error {
 	err = server.Start(":1323")
 	server.Logger.Fatal(err)
 	return err
+}
+
+//
+// misc
+//
+
+func printJSON(data interface{}) {
+	indented, err := json.MarshalIndent(data, "", "    ")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(indented))
 }

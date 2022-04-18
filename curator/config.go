@@ -14,6 +14,7 @@ type Config struct {
 	AllowEmptyPeerList bool     `json:"allow_empty_peer_list"`
 	CuratedDir         string   `json:"curated_dir"`
 	IpfsHost           string   `json:"ipfs_host"`
+	CardanoWalletHost  string   `json:"cardano_wallet_host"`
 	LogPath            string   `json:"log_path"`
 	AllowedPeers       []string `json:"allowed_peers"`
 	WireChannel        string   `json:"wire_channel"`
@@ -24,6 +25,7 @@ func DefaultConfig() *Config {
 		AllowEmptyPeerList: false,
 		CuratedDir:         "/dBranch/curated",
 		IpfsHost:           "localhost:5001",
+		CardanoWalletHost:  "http://localhost:8090",
 		LogPath:            "-",
 		AllowedPeers:       []string{},
 		WireChannel:        "dbranch-wire",
