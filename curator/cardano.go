@@ -67,8 +67,31 @@ func (c *Curator) getRequest(endpoint string) (interface{}, error) {
 	return data, nil
 }
 
-func (c *Curator) NetworkInformation() (interface{}, error) {
-	return c.getRequest("/v2/network/information")
+func (c *Curator) WalletStatus() (string, error) {
+	type SyncProgress struct {
+		Status string `json:"status"`
+	}
+
+	type NetworkInformation struct {
+		SyncProgress SyncProgress `json:"sync_progress"`
+	}
+
+	info := &NetworkInformation{}
+	url := c.Config.CardanoWalletHost + "/v2/network/information"
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", errors.New(url + " returned error: " + err.Error())
+	}
+
+	defer resp.Body.Close()
+
+	err = json.NewDecoder(resp.Body).Decode(&info)
+	if err != nil {
+		return "", errors.New("error decoding config file: " + err.Error())
+	}
+
+	return info.SyncProgress.Status, nil
 }
 
 func (c *Curator) WalletIds() ([]string, error) {

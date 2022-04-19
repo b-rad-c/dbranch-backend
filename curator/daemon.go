@@ -82,7 +82,7 @@ func (c *Curator) SubscribeLoop() {
 
 	// enter infinite loop
 	for {
-		// wait for new message &  attempt to decode json
+		// wait for new message & attempt to decode json
 		msg, err := subscription.Next()
 		if err != nil {
 			log.Println("error getting next message: ", err)

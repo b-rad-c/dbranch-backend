@@ -69,8 +69,8 @@ func main() {
 				Usage: "interact with cardano blockchain",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "network",
-						Usage: "cardano network                          // show cardano node network information",
+						Name:  "status",
+						Usage: "cardano status                          // show cardano node network status",
 						Action: func(cli *cli.Context) error {
 							return cardanoCommand(cli, "network")
 						},
@@ -103,10 +103,10 @@ func main() {
 				Usage: "show or edit the allowed peers list, run with args 'peers help' for more info",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "show",
-						Usage: "peers show                           // show the allowed peers list",
+						Name:  "list",
+						Usage: "peers list                           // show the allowed peers list",
 						Action: func(cli *cli.Context) error {
-							return peerCommand(cli, "show")
+							return peerCommand(cli, "list")
 						},
 					},
 					{
@@ -218,13 +218,13 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 	app := curator.NewCurator(config)
 	args := cli.Args().Slice()
 
-	if sub_cmd == "network" {
-		network, err := app.NetworkInformation()
+	if sub_cmd == "status" {
+		status, err := app.WalletStatus()
 		if err != nil {
 			return err
 		}
 
-		printJSON(network)
+		printJSON(status)
 
 	} else if sub_cmd == "wallets" {
 		wallets, err := app.WalletIds()
@@ -268,7 +268,7 @@ func peerCommand(cli *cli.Context, sub_cmd string) error {
 		return err
 	}
 
-	if sub_cmd == "show" {
+	if sub_cmd == "list" {
 		// if no command, print peers
 		fmt.Printf("showing %d peer(s)\n", len(config.AllowedPeers))
 
