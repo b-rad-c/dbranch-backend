@@ -70,30 +70,51 @@ func main() {
 				Subcommands: []*cli.Command{
 					{
 						Name:  "status",
-						Usage: "cardano status                          // show cardano node network status",
+						Usage: "cardano status                                        // show cardano node network status",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "network")
+							return cardanoCommand(cli, "status")
+						},
+					},
+					{
+						Name:  "wait",
+						Usage: "cardano wait                                          // wait for network to become ready",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "wait")
 						},
 					},
 					{
 						Name:  "articles",
-						Usage: "cardano articles <wallet id>             // list articles for a given wallet",
+						Usage: "cardano articles <wallet id>                          // list articles for a given wallet",
 						Action: func(cli *cli.Context) error {
 							return cardanoCommand(cli, "articles")
 						},
 					},
 					{
+						Name:  "sign",
+						Usage: "cardano sign <wallet id> <address> <name> <location>  // sign an article by sending a transaction to your own wallet with metadata about the article",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "sign")
+						},
+					},
+					{
 						Name:  "transactions",
-						Usage: "cardano transactions <wallet id>             // list wallets for a given wallet",
+						Usage: "cardano transactions <wallet id>                      // list wallets for a given wallet",
 						Action: func(cli *cli.Context) error {
 							return cardanoCommand(cli, "transactions")
 						},
 					},
 					{
 						Name:  "wallets",
-						Usage: "cardano wallets                          // list wallets",
+						Usage: "cardano wallets                                       // list wallets",
 						Action: func(cli *cli.Context) error {
 							return cardanoCommand(cli, "wallets")
+						},
+					},
+					{
+						Name:  "addresses",
+						Usage: "cardano addresses <wallet id>                         // list addresses for a given wallet",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "addresses")
 						},
 					},
 				},
@@ -188,7 +209,7 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 			return err
 		}
 		for index, article := range list.Items {
-			fmt.Printf("%d) %s\n", index+1, article.Name)
+			fmt.Printf("%2d) %s\n", index+1, article.Name)
 		}
 
 	} else if sub_cmd == "get" {
@@ -219,12 +240,27 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 	args := cli.Args().Slice()
 
 	if sub_cmd == "status" {
-		status, err := app.WalletStatus()
+		status, err := app.Status()
 		if err != nil {
 			return err
 		}
 
-		printJSON(status)
+		fmt.Printf("status: %s\n", status)
+
+	} else if sub_cmd == "wait" {
+		app.WaitForCardano()
+
+	} else if sub_cmd == "sign" {
+		if len(args) < 4 {
+			return errors.New("incorrect arguments")
+		}
+
+		transaction_id, err := app.SignArticle(args[0], args[1], args[2], args[3])
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("transaction id: %s\n", transaction_id)
 
 	} else if sub_cmd == "wallets" {
 		wallets, err := app.WalletIds()
@@ -235,6 +271,21 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 		for index, wallet := range wallets {
 			fmt.Printf("%d) %s\n", index+1, wallet)
 		}
+
+	} else if sub_cmd == "addresses" {
+		if len(args) < 1 {
+			return errors.New("did not supply wallet id")
+		}
+
+		addresses, err := app.WalletAddresses(args[0])
+		if err != nil {
+			return err
+		}
+
+		for index, address := range addresses {
+			fmt.Printf("%2d) %6s - %s\n", index+1, address.State, address.ID)
+		}
+
 	} else if sub_cmd == "transactions" {
 		if len(args) < 1 {
 			return errors.New("did not supply wallet id")
@@ -250,7 +301,7 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 			return errors.New("did not supply wallet id")
 		}
 
-		articles, err := app.WalletArticles(args[0])
+		articles, err := app.SignedArticles(args[0])
 		if err != nil {
 			return err
 		}
@@ -273,7 +324,7 @@ func peerCommand(cli *cli.Context, sub_cmd string) error {
 		fmt.Printf("showing %d peer(s)\n", len(config.AllowedPeers))
 
 		for index, peerId := range config.AllowedPeers {
-			fmt.Printf("%d) %s\n", index+1, peerId)
+			fmt.Printf("%2d) %s\n", index+1, peerId)
 		}
 
 		return nil

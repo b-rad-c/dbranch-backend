@@ -1,50 +1,25 @@
 package curator
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"syscall"
 	"time"
+
+	"golang.org/x/crypto/ssh/terminal"
 )
+
+//
+// init
+//
 
 var client = &http.Client{}
 
 func init() {
 	client = &http.Client{Timeout: 30 * time.Second}
-}
-
-//
-// models
-//
-
-type CardanoString struct {
-	String string `json:"string"`
-}
-
-type CardanoKeyValue struct {
-	Key   CardanoString `json:"k"`
-	Value CardanoString `json:"v"`
-}
-
-type CardanoMap struct {
-	Map []CardanoKeyValue `json:"map"`
-}
-
-type CardanoArticleMetadata struct {
-	Label CardanoMap `json:"451"`
-}
-
-type CardanoArticle struct {
-	TransactionID string `json:"transaction_id"`
-	Name          string `json:"name"`
-	Location      string `json:"location"`
-}
-
-type Transaction struct {
-	ID        string                 `json:"id"`
-	Direction string                 `json:"direction"`
-	Status    string                 `json:"status"`
-	Metadata  CardanoArticleMetadata `json:"metadata"`
 }
 
 func (c *Curator) getRequest(endpoint string) (interface{}, error) {
@@ -67,32 +42,76 @@ func (c *Curator) getRequest(endpoint string) (interface{}, error) {
 	return data, nil
 }
 
-func (c *Curator) WalletStatus() (string, error) {
-	type SyncProgress struct {
-		Status string `json:"status"`
-	}
-
-	type NetworkInformation struct {
-		SyncProgress SyncProgress `json:"sync_progress"`
-	}
-
-	info := &NetworkInformation{}
-	url := c.Config.CardanoWalletHost + "/v2/network/information"
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", errors.New(url + " returned error: " + err.Error())
-	}
-
-	defer resp.Body.Close()
-
-	err = json.NewDecoder(resp.Body).Decode(&info)
-	if err != nil {
-		return "", errors.New("error decoding config file: " + err.Error())
-	}
-
-	return info.SyncProgress.Status, nil
+type walletError struct {
+	Message string `json:"message"`
+	Code    string `json:"code"`
 }
+
+//
+// cbor
+//
+
+type cborString struct {
+	String string `json:"string"`
+}
+
+type cborKeyValue struct {
+	Key   cborString `json:"k"`
+	Value cborString `json:"v"`
+}
+
+type cborMap struct {
+	Map []cborKeyValue `json:"map"`
+}
+
+//
+// signed articles
+//
+
+type cardanoArticleMetadata struct {
+	Label cborMap `json:"451"`
+}
+
+type CardanoArticle struct {
+	TransactionID string `json:"transaction_id"`
+	Name          string `json:"name"`
+	Location      string `json:"location"`
+}
+
+type CardanoAddress struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+type CardanoTransaction struct {
+	ID        string                 `json:"id"`
+	Direction string                 `json:"direction"`
+	Status    string                 `json:"status"`
+	Metadata  cardanoArticleMetadata `json:"metadata"`
+}
+
+//
+// transaction request
+//
+
+type transactionAmount struct {
+	Quantity int    `json:"quantity"`
+	Unit     string `json:"unit"`
+}
+type transactionPayment struct {
+	Address string            `json:"address"`
+	Amount  transactionAmount `json:"amount"`
+}
+
+type transactionRequest struct {
+	Passphrase string                 `json:"passphrase"`
+	Payments   []transactionPayment   `json:"payments"`
+	Metadata   cardanoArticleMetadata `json:"metadata"`
+}
+
+//
+// wallet apis
+//
 
 func (c *Curator) WalletIds() ([]string, error) {
 	var wallet_ids []string
@@ -109,11 +128,33 @@ func (c *Curator) WalletIds() ([]string, error) {
 	return wallet_ids, nil
 }
 
-func (c *Curator) WalletTransactions(wallet_id string) ([]Transaction, error) {
-	transactions := make([]Transaction, 0)
+func (c *Curator) WalletAddresses(wallet_id string) ([]CardanoAddress, error) {
+	var addresses []CardanoAddress
+
+	resp, err := c.getRequest("/v2/wallets/" + wallet_id + "/addresses")
+	if err != nil {
+		return addresses, err
+	}
+
+	for _, address := range resp.([]interface{}) {
+		addr := CardanoAddress{
+			ID:    address.(map[string]interface{})["id"].(string),
+			State: address.(map[string]interface{})["state"].(string),
+		}
+
+		addresses = append(addresses, addr)
+	}
+
+	return addresses, nil
+}
+
+func (c *Curator) WalletTransactions(wallet_id string) ([]CardanoTransaction, error) {
+	// init
+	transactions := make([]CardanoTransaction, 0)
 
 	url := c.Config.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
 
+	// request
 	resp, err := client.Get(url)
 	if err != nil {
 		return transactions, errors.New(url + " returned error: " + err.Error())
@@ -121,6 +162,7 @@ func (c *Curator) WalletTransactions(wallet_id string) ([]Transaction, error) {
 
 	defer resp.Body.Close()
 
+	// decode
 	err = json.NewDecoder(resp.Body).Decode(&transactions)
 	if err != nil {
 		return transactions, errors.New("error decoding config file: " + err.Error())
@@ -129,12 +171,18 @@ func (c *Curator) WalletTransactions(wallet_id string) ([]Transaction, error) {
 	return transactions, nil
 }
 
-func (c *Curator) WalletArticles(wallet_id string) ([]CardanoArticle, error) {
-	transactions := make([]Transaction, 0)
+//
+// article signing
+//
+
+func (c *Curator) SignedArticles(wallet_id string) ([]CardanoArticle, error) {
+	// init
+	transactions := make([]CardanoTransaction, 0)
 	articles := make([]CardanoArticle, 0)
 
 	url := c.Config.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
 
+	// request
 	resp, err := client.Get(url)
 	if err != nil {
 		return articles, errors.New(url + " returned error: " + err.Error())
@@ -142,11 +190,13 @@ func (c *Curator) WalletArticles(wallet_id string) ([]CardanoArticle, error) {
 
 	defer resp.Body.Close()
 
+	// decode
 	err = json.NewDecoder(resp.Body).Decode(&transactions)
 	if err != nil {
 		return articles, errors.New("error decoding config file: " + err.Error())
 	}
 
+	// parse response and filter non articles
 	for _, transaction := range transactions {
 		if transaction.Status == "in_ledger" && transaction.Direction == "outgoing" {
 			if transaction.Metadata.Label.Map != nil {
@@ -175,4 +225,102 @@ func (c *Curator) WalletArticles(wallet_id string) ([]CardanoArticle, error) {
 	}
 
 	return articles, nil
+}
+
+func (c *Curator) SignArticle(wallet_id, address, article_name, location string) (string, error) {
+	// get user password
+	fmt.Println("Cardano wallet password: ")
+	password, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return "", errors.New("error reading password: " + err.Error())
+	}
+	fmt.Println() // needed to clear the password from the terminal
+
+	// format request
+	body := transactionRequest{
+		Passphrase: string(password),
+		Payments: []transactionPayment{
+			{
+				Address: address,
+				Amount: transactionAmount{
+					Quantity: 1000000,
+					Unit:     "lovelace",
+				},
+			},
+		},
+		Metadata: cardanoArticleMetadata{
+			Label: cborMap{
+				Map: []cborKeyValue{
+					{
+						Key:   cborString{String: "name"},
+						Value: cborString{String: article_name},
+					},
+					{
+						Key:   cborString{String: "loc"},
+						Value: cborString{String: location},
+					},
+				},
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return "", errors.New("Error encoding json body: " + err.Error())
+	}
+
+	url := c.Config.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
+	resp, err := client.Post(url, "application/json; charset=UTF-8", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", errors.New(url + " returned error: " + err.Error())
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 202 {
+		// request status accepted
+		var data interface{}
+
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		if err != nil {
+			return "", errors.New("error decoding config file: " + err.Error())
+		}
+
+		id := data.(map[string]interface{})["id"].(string)
+		return id, nil
+
+	} else {
+		// handle error
+		var err_msg = walletError{}
+		err = json.NewDecoder(resp.Body).Decode(&err_msg)
+		if err != nil {
+			return "", errors.New(fmt.Sprintf("got status %v and error decoding resp: %v", resp.Status, err.Error()))
+		}
+
+		return "", errors.New(fmt.Sprintf("%v - %v - %v", resp.Status, err_msg.Code, err_msg.Message))
+
+	}
+
+}
+
+//
+// utilities
+//
+
+func (c *Curator) Status() (string, error) {
+	resp, err := c.getRequest("/v2/network/information")
+	if err != nil {
+		return "", err
+	}
+
+	sync := resp.(map[string]interface{})
+	status := sync["sync_progress"].(map[string]interface{})["status"].(string)
+	return status, nil
+}
+
+func (c *Curator) WaitForCardano() {
+	status := ""
+	for status != "ready" {
+		status, _ = c.Status()
+	}
 }
