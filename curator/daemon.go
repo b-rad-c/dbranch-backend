@@ -70,6 +70,50 @@ func (c *Curator) waitForIPFS() {
 	log.Printf("curated dir created: %s\n", c.Config.CuratedDir)
 }
 
+func (c *Curator) processIncomingMessage(msg *ipfs.Message) {
+
+	//
+	// init
+	//
+
+	peer := msg.From.String()
+	incomingArticle := IncomingArticle{}
+	err := json.Unmarshal([]byte(msg.Data), &incomingArticle)
+
+	if err == nil {
+
+		//
+		// message is an article, check if peer is allowed to publish
+		//
+
+		if c.Config.PeerIsAllowed(peer) {
+			err = c.AddToCurated(&incomingArticle)
+
+			if err == nil {
+				log.Printf("added new article: %s from peer: %s\n", incomingArticle.CID, peer)
+			} else {
+				log.Printf("error adding article to curated list: %s\n", err)
+			}
+
+		} else {
+			log.Printf("peer: %s is not in allowed peers list\n", msg.From)
+		}
+
+	} else {
+
+		//
+		// message is not an article, log ping or invalid message
+		//
+
+		if string(msg.Data) == "ping" {
+			log.Printf("received ping from peer: %s\n", peer)
+		} else {
+			log.Printf("error decoding incoming msg: %s\n", err)
+			log.Printf(" -> raw msg: %s\n", msg.Data)
+		}
+	}
+}
+
 func (c *Curator) SubscribeLoop() {
 	// init
 	subscription, err := c.Shell.PubSubSubscribe(c.Config.WireChannel)
@@ -82,37 +126,14 @@ func (c *Curator) SubscribeLoop() {
 
 	// enter infinite loop
 	for {
-		// wait for new message & attempt to decode json
+
 		msg, err := subscription.Next()
 		if err != nil {
 			log.Println("error getting next message: ", err)
 			log.Panic(err)
 		}
 
-		incomingArticle := IncomingArticle{}
-		err = json.Unmarshal([]byte(msg.Data), &incomingArticle)
-
-		// cannot decode json, not a new article, log incoming msg and move on
-		if err != nil {
-			log.Printf("error decoding incoming msg: %s\n", err)
-			log.Printf("raw msg: %s\n", msg.Data)
-			continue
-		}
-
-		peer := msg.From.String()
-
-		log.Printf("processing new article: %s from peer: %s\n", incomingArticle.CID, peer)
-
-		// check if peer is allowed to publish this article
-		if c.Config.PeerIsAllowed(peer) {
-			// attempt to add article to local curated dir
-			err = c.AddToCurated(&incomingArticle)
-			if err != nil {
-				log.Printf("error adding article to curated list: %s\n", err)
-			}
-		} else {
-			log.Printf("peer: %s is not in allowed peers list\n", msg.From)
-		}
+		c.processIncomingMessage(msg)
 
 	}
 }

@@ -8,7 +8,29 @@ import (
 	"os"
 	"os/user"
 	"path"
+
+	ipfs "github.com/ipfs/go-ipfs-api"
 )
+
+//
+// curator app
+//
+
+type Curator struct {
+	Config *Config
+	Shell  *ipfs.Shell
+}
+
+func NewCurator(config *Config) *Curator {
+	return &Curator{
+		Config: config,
+		Shell:  ipfs.NewShell(config.IpfsHost),
+	}
+}
+
+//
+// config
+//
 
 type Config struct {
 	AllowEmptyPeerList bool     `json:"allow_empty_peer_list"`
@@ -86,7 +108,7 @@ func (config *Config) WriteConfig(configPath string) error {
 }
 
 //
-// peer ops
+// config peer ops
 //
 
 func (config *Config) AddPeers(peerIds ...string) int {

@@ -13,7 +13,7 @@ import (
 )
 
 //
-// init
+// http
 //
 
 var client = &http.Client{}
@@ -48,7 +48,7 @@ type walletError struct {
 }
 
 //
-// cbor
+// cardano primitives
 //
 
 type cborString struct {
@@ -64,20 +64,6 @@ type cborMap struct {
 	Map []cborKeyValue `json:"map"`
 }
 
-//
-// signed articles
-//
-
-type cardanoArticleMetadata struct {
-	Label cborMap `json:"451"`
-}
-
-type CardanoArticle struct {
-	TransactionID string `json:"transaction_id"`
-	Name          string `json:"name"`
-	Location      string `json:"location"`
-}
-
 type CardanoAddress struct {
 	ID    string `json:"id"`
 	State string `json:"state"`
@@ -88,6 +74,21 @@ type CardanoTransaction struct {
 	Direction string                 `json:"direction"`
 	Status    string                 `json:"status"`
 	Metadata  cardanoArticleMetadata `json:"metadata"`
+}
+
+//
+// signed articles
+//
+
+type cardanoArticleMetadata struct {
+	Label cborMap `json:"451"`
+}
+
+type CardanoSignedArticle struct {
+	TransactionID string `json:"transaction_id"`
+	Name          string `json:"name"`
+	Location      string `json:"loc"`
+	Status        string `json:"status"`
 }
 
 //
@@ -175,10 +176,10 @@ func (c *Curator) WalletTransactions(wallet_id string) ([]CardanoTransaction, er
 // article signing
 //
 
-func (c *Curator) SignedArticles(wallet_id string) ([]CardanoArticle, error) {
+func (c *Curator) ListSignedArticles(wallet_id string) ([]CardanoSignedArticle, error) {
 	// init
 	transactions := make([]CardanoTransaction, 0)
-	articles := make([]CardanoArticle, 0)
+	articles := make([]CardanoSignedArticle, 0)
 
 	url := c.Config.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
 
@@ -198,7 +199,7 @@ func (c *Curator) SignedArticles(wallet_id string) ([]CardanoArticle, error) {
 
 	// parse response and filter non articles
 	for _, transaction := range transactions {
-		if transaction.Status == "in_ledger" && transaction.Direction == "outgoing" {
+		if transaction.Direction == "outgoing" {
 			if transaction.Metadata.Label.Map != nil {
 				name := ""
 				location := ""
@@ -215,10 +216,11 @@ func (c *Curator) SignedArticles(wallet_id string) ([]CardanoArticle, error) {
 					continue
 				}
 
-				articles = append(articles, CardanoArticle{
+				articles = append(articles, CardanoSignedArticle{
 					transaction.ID,
 					name,
 					location,
+					transaction.Status,
 				})
 			}
 		}
@@ -322,5 +324,6 @@ func (c *Curator) WaitForCardano() {
 	status := ""
 	for status != "ready" {
 		status, _ = c.Status()
+		time.Sleep(time.Second * 5)
 	}
 }

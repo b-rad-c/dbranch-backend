@@ -62,6 +62,13 @@ func main() {
 							return articleCommand(cli, "list")
 						},
 					},
+					{
+						Name:  "index",
+						Usage: "article index                             // show curated article index",
+						Action: func(cli *cli.Context) error {
+							return articleCommand(cli, "index")
+						},
+					},
 				},
 			},
 			{
@@ -212,6 +219,14 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 			fmt.Printf("%2d) %s\n", index+1, article.Name)
 		}
 
+	} else if sub_cmd == "index" {
+
+		index, err := app.LoadArticleIndex()
+		if err != nil {
+			return err
+		}
+		printJSON(index)
+
 	} else if sub_cmd == "get" {
 
 		if len(args) < 1 {
@@ -301,7 +316,7 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 			return errors.New("did not supply wallet id")
 		}
 
-		articles, err := app.SignedArticles(args[0])
+		articles, err := app.ListSignedArticles(args[0])
 		if err != nil {
 			return err
 		}

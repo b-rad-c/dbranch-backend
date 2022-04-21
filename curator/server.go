@@ -20,6 +20,16 @@ func (c *Curator) middleWare(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+func (c *Curator) articleIndex(e echo.Context) error {
+	index, err := c.LoadArticleIndex()
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
+	}
+
+	return e.JSON(http.StatusOK, index)
+}
+
 func (c *Curator) articleList(e echo.Context) error {
 	list, err := c.ListArticles()
 	if err != nil {
@@ -52,8 +62,9 @@ func NewCuratorServer(config *Config) *echo.Echo {
 	curator := NewCurator(config)
 	server.Use(curator.middleWare)
 
-	server.GET("/article/list", curator.articleList)
 	server.GET("/article/:name", curator.articleGet)
+	server.GET("/article/list", curator.articleList)
+	server.GET("/article/index", curator.articleIndex)
 	server.GET("/*", func(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	})
