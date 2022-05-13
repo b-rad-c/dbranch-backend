@@ -170,12 +170,29 @@ func main() {
 
 }
 
+func getConfigPath(cli *cli.Context) string {
+	/*
+		the config path is chosen in the following order
+			- env var: DBRANCH_CURATOR_CONFIG
+			- cli arg: --config
+			- curator.DefaultConfigPath()
+	*/
+	config_path := cli.String("config")
+
+	env_path := os.Getenv("DBRANCH_CURATOR_CONFIG")
+	if env_path != "" {
+		config_path = env_path
+	}
+
+	return config_path
+}
+
 //
 // command logic
 //
 
 func articleCommand(cli *cli.Context, sub_cmd string) error {
-	config, err := curator.LoadConfig(cli.String("config"))
+	config, err := curator.LoadConfig(getConfigPath(cli))
 	if err != nil {
 		return err
 	}
@@ -246,7 +263,7 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 }
 
 func cardanoCommand(cli *cli.Context, sub_cmd string) error {
-	config, err := curator.LoadConfig(cli.String("config"))
+	config, err := curator.LoadConfig(getConfigPath(cli))
 	if err != nil {
 		return err
 	}
@@ -327,8 +344,7 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 }
 
 func peerCommand(cli *cli.Context, sub_cmd string) error {
-	configPath := cli.String("config")
-
+	configPath := getConfigPath(cli)
 	config, err := curator.LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -359,8 +375,7 @@ func peerCommand(cli *cli.Context, sub_cmd string) error {
 }
 
 func daemonCommand(cli *cli.Context) error {
-
-	config, err := curator.LoadConfig(cli.String("config"))
+	config, err := curator.LoadConfig(getConfigPath(cli))
 	if err != nil {
 		return err
 	}
@@ -376,8 +391,7 @@ func daemonCommand(cli *cli.Context) error {
 }
 
 func serverCommand(cli *cli.Context) error {
-
-	config, err := curator.LoadConfig(cli.String("config"))
+	config, err := curator.LoadConfig(getConfigPath(cli))
 	if err != nil {
 		return err
 	}

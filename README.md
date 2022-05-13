@@ -13,8 +13,9 @@ This project is still in alpha phase, run the followin command to see the curren
 
 
 ### configuration
-Configuration is done through a json file, default below:
-
+Configuration is done through a json file. The path can be supplied with cli flags `-c` or `--config` or with env variable `DBRANCH_CURATOR_CONFIG`. If neither or found the default path will be used `~/.dbranch/curator.json`. If the path doesn't exist the following default file will be written to it and used.
+**default config**
+    
     {
         "allow_empty_peer_list": false,
         "curated_dir": "/dBranch/curated",

@@ -60,6 +60,8 @@ func DefaultConfigPath() string {
 }
 
 func LoadConfig(configPath string) (*Config, error) {
+	fmt.Printf("Loading config from: %s\n", configPath)
+
 	var config Config
 	f, err := os.Open(configPath)
 	defer f.Close()
