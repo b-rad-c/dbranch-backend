@@ -17,7 +17,7 @@ Configuration is done through a json file. The path can be supplied with cli fla
 **default config**
     
     {
-        "allow_empty_peer_list": false,
+        "allow_any_peer": false,
         "curated_dir": "/dBranch/curated",
         "ipfs_host": "localhost:5001",
         "log_path": "-",
@@ -35,13 +35,13 @@ Configuration is done through a json file. The path can be supplied with cli fla
 
 `allowed_peers` - a list of ipfs peer ids to limit whose articles will be curated, see section below for more details.
 
-`allow_empty_peer_list` - if `true` the program will exit if the allow list file does not exist or the list is empty (which implies all articles will be curated), default: `false`
+`allow_any_peer` - if `true` the program will curate articles from any peer, default: `false`
 
 `log_path` - the file to log to or `-` for stdout, default: `-`
 
 ### allowed peers list
 
-The peer allow list contains IPFS peer ids that will be automatically curated to the local IPFS node when a new article is received on the `wire_channel` pubsub. If the list is empty all articles will be automatically curated, by default this behaviour is not allowed, see `allow_empty_peer_list` in the configuration section to override.
+The peer allow list contains IPFS peer ids that will be automatically curated to the local IPFS node when a new article is received on the `wire_channel` pubsub. 
 
 To get the peer id for an IPFS node run the [ipfs id](ipns://docs.ipfs.io/reference/cli/#ipfs-id) command:
 

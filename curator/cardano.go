@@ -2,6 +2,7 @@ package curator
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -70,44 +72,41 @@ type CardanoAddress struct {
 }
 
 type CardanoTransaction struct {
-	ID        string                 `json:"id"`
-	Direction string                 `json:"direction"`
-	Status    string                 `json:"status"`
-	Metadata  cardanoArticleMetadata `json:"metadata"`
+	ID        string                     `json:"id"`
+	Direction string                     `json:"direction"`
+	Status    string                     `json:"status"`
+	Metadata  articleTransactionMetadata `json:"metadata"`
 }
-
-//
-// signed articles
-//
-
-type cardanoArticleMetadata struct {
-	Label cborMap `json:"451"`
-}
-
-type CardanoSignedArticle struct {
-	TransactionID string `json:"transaction_id"`
-	Name          string `json:"name"`
-	Location      string `json:"loc"`
-	Status        string `json:"status"`
-}
-
-//
-// transaction request
-//
 
 type transactionAmount struct {
 	Quantity int    `json:"quantity"`
 	Unit     string `json:"unit"`
 }
+
 type transactionPayment struct {
 	Address string            `json:"address"`
 	Amount  transactionAmount `json:"amount"`
 }
 
 type transactionRequest struct {
-	Passphrase string                 `json:"passphrase"`
-	Payments   []transactionPayment   `json:"payments"`
-	Metadata   cardanoArticleMetadata `json:"metadata"`
+	Passphrase string                     `json:"passphrase"`
+	Payments   []transactionPayment       `json:"payments"`
+	Metadata   articleTransactionMetadata `json:"metadata"`
+}
+
+//
+// published articles
+//
+
+type articleTransactionMetadata struct {
+	Label cborMap `json:"451"`
+}
+
+type ArticleTransaction struct {
+	TransactionID string `json:"transaction_id"`
+	Name          string `json:"name"`
+	Location      string `json:"loc"`
+	Status        string `json:"status"`
 }
 
 //
@@ -176,30 +175,18 @@ func (c *Curator) WalletTransactions(wallet_id string) ([]CardanoTransaction, er
 // article signing
 //
 
-func (c *Curator) ListSignedArticles(wallet_id string) ([]CardanoSignedArticle, error) {
-	// init
-	transactions := make([]CardanoTransaction, 0)
-	articles := make([]CardanoSignedArticle, 0)
+func (c *Curator) ListSignedArticles(wallet_id string) ([]ArticleTransaction, error) {
 
-	url := c.Config.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
-
-	// request
-	resp, err := client.Get(url)
+	transactions, err := c.WalletTransactions(wallet_id)
 	if err != nil {
-		return articles, errors.New(url + " returned error: " + err.Error())
+		return nil, err
 	}
 
-	defer resp.Body.Close()
-
-	// decode
-	err = json.NewDecoder(resp.Body).Decode(&transactions)
-	if err != nil {
-		return articles, errors.New("error decoding config file: " + err.Error())
-	}
+	articles := []ArticleTransaction{}
 
 	// parse response and filter non articles
 	for _, transaction := range transactions {
-		if transaction.Direction == "outgoing" {
+		if transaction.Status == "in_ledger" && transaction.Direction == "outgoing" {
 			if transaction.Metadata.Label.Map != nil {
 				name := ""
 				location := ""
@@ -216,7 +203,7 @@ func (c *Curator) ListSignedArticles(wallet_id string) ([]CardanoSignedArticle, 
 					continue
 				}
 
-				articles = append(articles, CardanoSignedArticle{
+				articles = append(articles, ArticleTransaction{
 					transaction.ID,
 					name,
 					location,
@@ -250,7 +237,7 @@ func (c *Curator) SignArticle(wallet_id, address, article_name, location string)
 				},
 			},
 		},
-		Metadata: cardanoArticleMetadata{
+		Metadata: articleTransactionMetadata{
 			Label: cborMap{
 				Map: []cborKeyValue{
 					{
@@ -306,7 +293,7 @@ func (c *Curator) SignArticle(wallet_id, address, article_name, location string)
 }
 
 //
-// utilities
+// Daemon
 //
 
 func (c *Curator) Status() (string, error) {
@@ -326,4 +313,56 @@ func (c *Curator) WaitForCardano() {
 		status, _ = c.Status()
 		time.Sleep(time.Second * 5)
 	}
+}
+
+func (c *Curator) WalletLoop() {
+	/*
+		first version will be simple, get the current date on initialization and query for wallet transactions that have occured since then
+	*/
+}
+
+//
+// postgres
+//
+
+func cardanoClient() (*sql.DB, error) {
+	connStr := "user=postgres dbname=cexplorer password=v8hlDV0yMAHHlIurYupj sslmode=disable"
+	return sql.Open("postgres", connStr)
+}
+
+func PingCardanoDB() error {
+
+	db, err := cardanoClient()
+	if err != nil {
+		return err
+	}
+
+	return db.Ping()
+}
+
+func CardanoDBMeta() error {
+	db, err := cardanoClient()
+	if err != nil {
+		return err
+	}
+
+	rows, err := db.Query("select * from meta")
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		var id int64
+		var start_time time.Time
+		var network_name string
+		var version string
+
+		err = rows.Scan(&id, &start_time, &network_name, &version)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("id: %3v | start_time: %8v | network_name: %6v | version: %6v\n", id, start_time, network_name, version)
+	}
+
+	return nil
 }

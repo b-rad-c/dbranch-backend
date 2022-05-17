@@ -124,6 +124,40 @@ func main() {
 							return cardanoCommand(cli, "addresses")
 						},
 					},
+					{
+						Name:  "db-ping",
+						Usage: "cardano db-ping                                      // ping the db",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "db-ping")
+						},
+					},
+					{
+						Name:  "db-meta",
+						Usage: "cardano db-meta                                      // show cardano db metadata",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "db-meta")
+						},
+					},
+				},
+			},
+			{
+				Name:  "index",
+				Usage: "generate or view the article index which lists curated and published (signed w cardano) articles",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "show",
+						Usage: "index show                           // show the article index",
+						Action: func(cli *cli.Context) error {
+							return indexCommand(cli, "show")
+						},
+					},
+					{
+						Name:  "generate",
+						Usage: "index generate                       // generate the article index",
+						Action: func(cli *cli.Context) error {
+							return indexCommand(cli, "generate")
+						},
+					},
 				},
 			},
 			{
@@ -207,7 +241,7 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 			return errors.New("did not supply article name and cid")
 		}
 
-		err = app.AddToCurated(&curator.IncomingArticle{Name: args[0], CID: args[1]})
+		err = app.AddRecordToLocal(&curator.ArticleRecord{Name: args[0], CID: args[1]}, curator.Curated)
 		if err != nil {
 			return err
 		}
@@ -220,7 +254,7 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 			return errors.New("did not supply article name")
 		}
 
-		err = app.RemoveFromCurated(args[0])
+		err = app.RemoveRecordFromLocal(args[0], curator.Curated)
 		if err != nil {
 			return err
 		}
@@ -235,14 +269,6 @@ func articleCommand(cli *cli.Context, sub_cmd string) error {
 		for index, article := range list.Items {
 			fmt.Printf("%2d) %s\n", index+1, article.Name)
 		}
-
-	} else if sub_cmd == "index" {
-
-		index, err := app.LoadArticleIndex()
-		if err != nil {
-			return err
-		}
-		printJSON(index)
 
 	} else if sub_cmd == "get" {
 
@@ -338,6 +364,41 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 			return err
 		}
 		printJSON(articles)
+	} else if sub_cmd == "db-ping" {
+		err := curator.PingCardanoDB()
+		if err != nil {
+			fmt.Println("error: ", err)
+		} else {
+			fmt.Println("success!")
+		}
+	} else if sub_cmd == "db-meta" {
+		curator.CardanoDBMeta()
+	}
+
+	return nil
+}
+
+func indexCommand(cli *cli.Context, sub_cmd string) error {
+	configPath := getConfigPath(cli)
+	config, err := curator.LoadConfig(configPath)
+	if err != nil {
+		return err
+	}
+
+	app := curator.NewCurator(config)
+
+	if sub_cmd == "show" {
+		index, err := app.LoadArticleIndex()
+		if err != nil {
+			return err
+		}
+
+		printJSON(index)
+
+		return nil
+
+	} else if sub_cmd == "generate" {
+		return app.GenerateArticleIndex()
 	}
 
 	return nil

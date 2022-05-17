@@ -3,13 +3,19 @@ package curator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"os"
 	"time"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
 )
+
+type IncomingArticle struct {
+	Name          string    `json:"name"`
+	CID           string    `json:"cid"`
+	TransactionID string    `json:"transaction_id,omitempty"`
+	DatePublished time.Time `json:"date_published,omitempty"` // publish date in UTC
+}
 
 //
 // daemon to handle incoming articles on ipfs pubsub wire channel
@@ -37,11 +43,6 @@ func (c *Curator) setup() error {
 		defer logFile.Close()
 
 		log.SetOutput(logFile)
-	}
-
-	log.Printf("allow empty: %v, num peers: %d\n", c.Config.AllowEmptyPeerList, len(c.Config.AllowedPeers))
-	if !c.Config.AllowEmptyPeerList && len(c.Config.AllowedPeers) == 0 {
-		return errors.New("empty peer list is not allowed, set config value 'allow_empty_peer_list' to 'true' or add peers")
 	}
 
 	return nil
@@ -87,7 +88,13 @@ func (c *Curator) processIncomingMessage(msg *ipfs.Message) {
 		//
 
 		if c.Config.PeerIsAllowed(peer) {
-			err = c.AddToCurated(&incomingArticle)
+			record := &ArticleRecord{
+				Name:          incomingArticle.Name,
+				CID:           incomingArticle.CID,
+				TransactionID: incomingArticle.TransactionID,
+				DatePublished: incomingArticle.DatePublished,
+			}
+			err = c.AddRecordToLocal(record, Curated)
 
 			if err == nil {
 				log.Printf("added new article: %s from peer: %s\n", incomingArticle.CID, peer)

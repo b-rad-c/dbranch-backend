@@ -33,24 +33,28 @@ func NewCurator(config *Config) *Curator {
 //
 
 type Config struct {
-	AllowEmptyPeerList bool     `json:"allow_empty_peer_list"`
-	CuratedDir         string   `json:"curated_dir"`
-	IpfsHost           string   `json:"ipfs_host"`
-	CardanoWalletHost  string   `json:"cardano_wallet_host"`
-	LogPath            string   `json:"log_path"`
-	AllowedPeers       []string `json:"allowed_peers"`
-	WireChannel        string   `json:"wire_channel"`
+	AllowAnyPeer      bool     `json:"allow_any_peer"`
+	CuratedDir        string   `json:"curated_dir"`
+	PublishedDir      string   `json:"published_dir"`
+	Index             string   `json:"index"`
+	IpfsHost          string   `json:"ipfs_host"`
+	CardanoWalletHost string   `json:"cardano_wallet_host"`
+	LogPath           string   `json:"log_path"`
+	AllowedPeers      []string `json:"allowed_peers"`
+	WireChannel       string   `json:"wire_channel"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		AllowEmptyPeerList: false,
-		CuratedDir:         "/dBranch/curated",
-		IpfsHost:           "localhost:5001",
-		CardanoWalletHost:  "http://localhost:8090",
-		LogPath:            "-",
-		AllowedPeers:       []string{},
-		WireChannel:        "dbranch-wire",
+		AllowAnyPeer:      false,
+		CuratedDir:        "/dBranch/curated",
+		PublishedDir:      "/dBranch/published",
+		Index:             "/dBranch/index.json",
+		IpfsHost:          "localhost:5001",
+		CardanoWalletHost: "http://localhost:8090",
+		LogPath:           "-",
+		AllowedPeers:      []string{},
+		WireChannel:       "dbranch-wire",
 	}
 }
 
@@ -119,8 +123,7 @@ func (config *Config) AddPeers(peerIds ...string) int {
 }
 
 func (config *Config) PeerIsAllowed(peerId string) bool {
-	if len(config.AllowedPeers) == 0 {
-		// empty list implies all peers are allowed
+	if config.AllowAnyPeer {
 		return true
 	}
 
