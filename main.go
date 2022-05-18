@@ -138,6 +138,13 @@ func main() {
 							return cardanoCommand(cli, "db-meta")
 						},
 					},
+					{
+						Name:  "db-records",
+						Usage: "cardano db-records                                      // list all cardano article transactions",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "db-records")
+						},
+					},
 				},
 			},
 			{
@@ -367,12 +374,22 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 	} else if sub_cmd == "db-ping" {
 		err := curator.PingCardanoDB()
 		if err != nil {
-			fmt.Println("error: ", err)
+			return err
 		} else {
 			fmt.Println("success!")
 		}
 	} else if sub_cmd == "db-meta" {
-		curator.CardanoDBMeta()
+		db_meta, err := curator.CardanoDBMeta()
+		if err != nil {
+			return err
+		}
+		printJSON(db_meta)
+	} else if sub_cmd == "db-records" {
+		records, err := curator.CardanoArticles()
+		if err != nil {
+			return err
+		}
+		printJSON(records)
 	}
 
 	return nil
