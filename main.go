@@ -145,6 +145,20 @@ func main() {
 							return cardanoCommand(cli, "db-records")
 						},
 					},
+					{
+						Name:  "db-address",
+						Usage: "cardano db-address                                      // list cardano article transactions by wallet address",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "db-address")
+						},
+					},
+					{
+						Name:  "db-tx",
+						Usage: "cardano db-tx                                          // lookup cardano article by tx hash",
+						Action: func(cli *cli.Context) error {
+							return cardanoCommand(cli, "db-tx")
+						},
+					},
 				},
 			},
 			{
@@ -372,7 +386,7 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 		}
 		printJSON(articles)
 	} else if sub_cmd == "db-ping" {
-		err := curator.PingCardanoDB()
+		err := curator.CardanoDBPing()
 		if err != nil {
 			return err
 		} else {
@@ -385,7 +399,25 @@ func cardanoCommand(cli *cli.Context, sub_cmd string) error {
 		}
 		printJSON(db_meta)
 	} else if sub_cmd == "db-records" {
-		records, err := curator.CardanoArticles()
+		records, err := curator.CardanoRecords()
+		if err != nil {
+			return err
+		}
+		printJSON(records)
+	} else if sub_cmd == "db-address" {
+		if len(args) < 1 {
+			return errors.New("did not supply address")
+		}
+		records, err := curator.CardanoRecordsByAddress(args[0])
+		if err != nil {
+			return err
+		}
+		printJSON(records)
+	} else if sub_cmd == "db-tx" {
+		if len(args) < 1 {
+			return errors.New("did not supply tx hash")
+		}
+		records, err := curator.CardanoRecordsByTxHash(args[0])
 		if err != nil {
 			return err
 		}
