@@ -1,4 +1,4 @@
-package curator
+package dbranch
 
 import (
 	"net/http"
@@ -14,13 +14,13 @@ type errorMsg struct {
 	Error string `json:"error"`
 }
 
-func (c *Curator) middleWare(next echo.HandlerFunc) echo.HandlerFunc {
+func (c *Config) middleWare(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return next(c)
 	}
 }
 
-func (c *Curator) articleIndex(e echo.Context) error {
+func (c *Config) articleIndex(e echo.Context) error {
 	index, err := c.LoadArticleIndex()
 	if err != nil {
 		e.Logger().Error(err)
@@ -30,18 +30,22 @@ func (c *Curator) articleIndex(e echo.Context) error {
 	return e.JSON(http.StatusOK, index)
 }
 
-func (c *Curator) articleList(e echo.Context) error {
+type articleListResponse struct {
+	Articles []string `json:"articles"`
+}
+
+func (c *Config) articleList(e echo.Context) error {
 	list, err := c.ListArticles()
 	if err != nil {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
 	}
 
-	return e.JSON(http.StatusOK, list)
+	return e.JSON(http.StatusOK, &articleListResponse{Articles: list})
 }
 
-func (c *Curator) articleGet(e echo.Context) error {
-	article, err := c.GetArticle(e.Param("name"))
+func (c *Config) articleGet(e echo.Context) error {
+	record, article, err := c.GetArticle(e.Param("name"))
 
 	if err != nil {
 		e.Logger().Error(err)
@@ -52,19 +56,18 @@ func (c *Curator) articleGet(e echo.Context) error {
 		}
 	}
 
-	return e.JSON(http.StatusOK, article)
+	return e.JSON(http.StatusOK, &FullArticle{Article: article, Record: record})
 }
 
 func NewCuratorServer(config *Config) *echo.Echo {
 
 	server := echo.New()
 
-	curator := NewCurator(config)
-	server.Use(curator.middleWare)
+	server.Use(config.middleWare)
 
-	server.GET("/article/:name", curator.articleGet)
-	server.GET("/article/list", curator.articleList)
-	server.GET("/article/index", curator.articleIndex)
+	server.GET("/article/:name", config.articleGet)
+	server.GET("/article/list", config.articleList)
+	server.GET("/article/index", config.articleIndex)
 	server.GET("/*", func(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	})

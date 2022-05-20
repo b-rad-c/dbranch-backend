@@ -1,4 +1,4 @@
-package curator
+package dbranch
 
 import (
 	"encoding/json"
@@ -13,48 +13,22 @@ import (
 )
 
 //
-// curator app
-//
-
-type Curator struct {
-	Config *Config
-	Shell  *ipfs.Shell
-}
-
-func NewCurator(config *Config) *Curator {
-	return &Curator{
-		Config: config,
-		Shell:  ipfs.NewShell(config.IpfsHost),
-	}
-}
-
-//
 // config
 //
 
 type Config struct {
-	AllowAnyPeer      bool     `json:"allow_any_peer"`
-	CuratedDir        string   `json:"curated_dir"`
-	PublishedDir      string   `json:"published_dir"`
-	Index             string   `json:"index"`
-	IpfsHost          string   `json:"ipfs_host"`
-	CardanoWalletHost string   `json:"cardano_wallet_host"`
-	LogPath           string   `json:"log_path"`
-	AllowedPeers      []string `json:"allowed_peers"`
-	WireChannel       string   `json:"wire_channel"`
+	CuratedDir        string `json:"curated_dir"`
+	Index             string `json:"index"`
+	IpfsHost          string `json:"ipfs_host"`
+	CardanoWalletHost string `json:"cardano_wallet_host"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		AllowAnyPeer:      false,
 		CuratedDir:        "/dBranch/curated",
-		PublishedDir:      "/dBranch/published",
 		Index:             "/dBranch/index.json",
 		IpfsHost:          "localhost:5001",
 		CardanoWalletHost: "http://localhost:8090",
-		LogPath:           "-",
-		AllowedPeers:      []string{},
-		WireChannel:       "dbranch-wire",
 	}
 }
 
@@ -94,7 +68,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &config, nil
 }
 
-func (config *Config) WriteConfig(configPath string) error {
+func (c *Config) WriteConfig(configPath string) error {
 
 	if configPath == DefaultConfigPath() {
 		dir, _ := path.Split(configPath)
@@ -110,27 +84,9 @@ func (config *Config) WriteConfig(configPath string) error {
 
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("", "    ")
-	return encoder.Encode(config)
+	return encoder.Encode(c)
 }
 
-//
-// config peer ops
-//
-
-func (config *Config) AddPeers(peerIds ...string) int {
-	config.AllowedPeers = append(config.AllowedPeers, peerIds...)
-	return len(peerIds)
-}
-
-func (config *Config) PeerIsAllowed(peerId string) bool {
-	if config.AllowAnyPeer {
-		return true
-	}
-
-	for _, p := range config.AllowedPeers {
-		if p == peerId {
-			return true
-		}
-	}
-	return false
+func (c *Config) ipfsShell() *ipfs.Shell {
+	return ipfs.NewShell(c.IpfsHost)
 }

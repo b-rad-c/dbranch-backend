@@ -7,13 +7,35 @@ import (
 	"log"
 	"os"
 
-	curator "github.com/b-rad-c/dbranch-backend/curator"
+	dbranch "github.com/b-rad-c/dbranch-backend/dbranch"
 	"github.com/urfave/cli/v2"
 )
 
 //
 // cli interface
 //
+
+var config *dbranch.Config
+
+func loadConfig(cli *cli.Context) error {
+
+	/*
+		the config path is chosen in the following order
+			- env var: DBRANCH_CURATOR_CONFIG
+			- cli arg: --config
+			- curator.DefaultConfigPath()
+	*/
+	var err error
+	config_path := cli.String("config")
+
+	env_path := os.Getenv("DBRANCH_CURATOR_CONFIG")
+	if env_path != "" {
+		config_path = env_path
+	}
+
+	config, err = dbranch.LoadConfig(config_path)
+	return err
+}
 
 func main() {
 
@@ -26,193 +48,234 @@ func main() {
 				Name:    "config",
 				Aliases: []string{"c"},
 				Usage:   "The path to the dbranch config file",
-				Value:   curator.DefaultConfigPath(),
+				Value:   dbranch.DefaultConfigPath(),
 			},
 		},
 		Commands: []*cli.Command{
 			{
 				Name:  "article",
-				Usage: "interact with articles, run with no arguments to see available sub commands",
+				Usage: "Interact with curated articles",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "add",
-						Usage: "article add <article_name> <article cid> // add article to curated list",
-						Action: func(cli *cli.Context) error {
-							return articleCommand(cli, "add")
-						},
-					},
-					{
-						Name:  "remove",
-						Usage: "article remove <article_name>            // remove an article from curated list",
-						Action: func(cli *cli.Context) error {
-							return articleCommand(cli, "remove")
-						},
-					},
-					{
 						Name:  "get",
-						Usage: "article get <article_name>               // get an article as json",
+						Usage: "get a curated article",
 						Action: func(cli *cli.Context) error {
-							return articleCommand(cli, "get")
-						},
-					},
-					{
-						Name:  "list",
-						Usage: "article list                             // list curated articles",
-						Action: func(cli *cli.Context) error {
-							return articleCommand(cli, "list")
+							record, article, err := config.GetArticle(cli.Args().First())
+							if err != nil {
+								return err
+							}
+							printJSON(&dbranch.FullArticle{Article: article, Record: record})
+							return nil
 						},
 					},
 					{
 						Name:  "index",
-						Usage: "article index                             // show curated article index",
-						Action: func(cli *cli.Context) error {
-							return articleCommand(cli, "index")
+						Usage: "generate or view the article index which lists curated and published (signed w cardano) articles",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "show",
+								Usage: "show the article index",
+								Action: func(cli *cli.Context) error {
+									index, err := config.LoadArticleIndex()
+									if err != nil {
+										return err
+									}
+
+									printJSON(index)
+									return nil
+								},
+							},
+							{
+								Name:  "refresh",
+								Usage: "refresh the article index",
+								Action: func(cli *cli.Context) error {
+									return config.RefreshArticleIndex()
+								},
+							},
 						},
 					},
 				},
 			},
 			{
-				Name:  "cardano",
-				Usage: "interact with cardano blockchain",
+				Name:    "cardano-db",
+				Aliases: []string{"db"},
+				Usage:   "Interact with cardano sql db",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "ping",
+						Usage: "ping postgres db",
+						Action: func(cli *cli.Context) error {
+							err := dbranch.CardanoDBPing()
+							if err != nil {
+								return err
+							} else {
+								fmt.Println("success!")
+							}
+							return nil
+						},
+					},
+					{
+						Name:  "meta",
+						Usage: "show db metadata",
+						Action: func(cli *cli.Context) error {
+							db_meta, err := dbranch.CardanoDBMeta()
+							if err != nil {
+								return err
+							}
+							printJSON(db_meta)
+							return nil
+						},
+					},
+					{
+						Name:  "status",
+						Usage: "show db sync status",
+						Action: func(cli *cli.Context) error {
+							return errors.New("not implemented")
+						},
+					},
+					{
+						Name:  "records",
+						Usage: "show cardano article records",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:    "address",
+								Aliases: []string{"a", "addr"},
+								Usage:   "filter records by public address",
+							},
+							&cli.StringFlag{
+								Name:  "hash",
+								Usage: "filter records by transaction hash",
+							},
+						},
+						Action: func(cli *cli.Context) error {
+							return errors.New("not implemented")
+						},
+					},
+					{
+						Name:      "add-tx",
+						Usage:     "add article to curated list by cardano tx hash",
+						ArgsUsage: "add-tx [tx_hash]",
+						Action: func(cli *cli.Context) error {
+							return errors.New("not implemented")
+						},
+					},
+				},
+			},
+
+			{
+				Name:    "cardano-wallet",
+				Aliases: []string{"wallet"},
+				Usage:   "interact with cardano wallet",
 				Subcommands: []*cli.Command{
 					{
 						Name:  "status",
-						Usage: "cardano status                                        // show cardano node network status",
+						Usage: "show cardano node network status",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "status")
+							status, err := config.Status()
+							if err != nil {
+								return err
+							}
+
+							fmt.Printf("status: %s\n", status)
+							return nil
 						},
 					},
 					{
 						Name:  "wait",
-						Usage: "cardano wait                                          // wait for network to become ready",
+						Usage: "wait for network to become ready",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "wait")
+							config.WaitForCardano()
+							return nil
 						},
 					},
 					{
-						Name:  "articles",
-						Usage: "cardano articles <wallet id>                          // list articles for a given wallet",
+						Name:  "list",
+						Usage: "list available wallets by id",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "articles")
-						},
-					},
-					{
-						Name:  "sign",
-						Usage: "cardano sign <wallet id> <address> <name> <location>  // sign an article by sending a transaction to your own wallet with metadata about the article",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "sign")
-						},
-					},
-					{
-						Name:  "transactions",
-						Usage: "cardano transactions <wallet id>                      // list wallets for a given wallet",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "transactions")
-						},
-					},
-					{
-						Name:  "wallets",
-						Usage: "cardano wallets                                       // list wallets",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "wallets")
+							wallets, err := config.WalletIds()
+							if err != nil {
+								return err
+							}
+
+							for index, wallet := range wallets {
+								fmt.Printf("%2d) %s\n", index+1, wallet)
+							}
+							return nil
 						},
 					},
 					{
 						Name:  "addresses",
-						Usage: "cardano addresses <wallet id>                         // list addresses for a given wallet",
+						Usage: "list addresses for a given wallet id",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "addresses")
+							addresses, err := config.WalletAddresses(cli.Args().First())
+							if err != nil {
+								return err
+							}
+
+							for index, address := range addresses {
+								fmt.Printf("%2d) %6s - %s\n", index+1, address.State, address.ID)
+							}
+							return nil
 						},
 					},
 					{
-						Name:  "db-ping",
-						Usage: "cardano db-ping                                      // ping the db",
+						Name:  "sign",
+						Usage: "sign an article by sending a transaction to your own wallet with metadata about the article",
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "db-ping")
+							args := cli.Args().Slice()
+							transaction_id, err := config.SignArticle(args[0], args[1], args[2], args[3])
+							if err != nil {
+								return err
+							}
+
+							fmt.Printf("transaction id: %s\n", transaction_id)
+							return nil
 						},
 					},
 					{
-						Name:  "db-meta",
-						Usage: "cardano db-meta                                      // show cardano db metadata",
+						Name: "articles",
+						Usage: `list published articles for a wallet id; list may be incomplete as it will only store articles published singed by this wallet instance
+						use "cardano-db records" or "article index show" to see all articles`,
 						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "db-meta")
-						},
-					},
-					{
-						Name:  "db-records",
-						Usage: "cardano db-records                                      // list all cardano article transactions",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "db-records")
-						},
-					},
-					{
-						Name:  "db-address",
-						Usage: "cardano db-address                                      // list cardano article transactions by wallet address",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "db-address")
-						},
-					},
-					{
-						Name:  "db-tx",
-						Usage: "cardano db-tx                                          // lookup cardano article by tx hash",
-						Action: func(cli *cli.Context) error {
-							return cardanoCommand(cli, "db-tx")
+							articles, err := config.ListSignedArticles(cli.Args().First())
+							if err != nil {
+								return err
+							}
+							printJSON(articles)
+							return nil
 						},
 					},
 				},
 			},
 			{
-				Name:  "index",
-				Usage: "generate or view the article index which lists curated and published (signed w cardano) articles",
+				Name:  "run",
+				Usage: "Run the curator or web services",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "show",
-						Usage: "index show                           // show the article index",
+						Name:  "daemon",
+						Usage: "run the curator daemon which pulls articles from the cardano blockchain",
 						Action: func(cli *cli.Context) error {
-							return indexCommand(cli, "show")
+							return errors.New("not implemented")
 						},
 					},
 					{
-						Name:  "generate",
-						Usage: "index generate                       // generate the article index",
+						Name:  "server",
+						Usage: "run curator web server",
+						Flags: []cli.Flag{
+							&cli.IntFlag{
+								Name:    "port",
+								Aliases: []string{"p"},
+								Usage:   "The port to serve on",
+								Value:   1323,
+							},
+						},
 						Action: func(cli *cli.Context) error {
-							return indexCommand(cli, "generate")
+							server := dbranch.NewCuratorServer(config)
+							err := server.Start(fmt.Sprintf(":%d", cli.Int("port")))
+							server.Logger.Fatal(err)
+							return err
 						},
 					},
-				},
-			},
-			{
-				Name:  "peers",
-				Usage: "show or edit the allowed peers list, run with args 'peers help' for more info",
-				Subcommands: []*cli.Command{
-					{
-						Name:  "list",
-						Usage: "peers list                           // show the allowed peers list",
-						Action: func(cli *cli.Context) error {
-							return peerCommand(cli, "list")
-						},
-					},
-					{
-						Name:  "add",
-						Usage: "peers add <peer_id> <peer_id> ...    // add one or more peers to the list",
-						Action: func(cli *cli.Context) error {
-							return peerCommand(cli, "add")
-						},
-					},
-				},
-			},
-			{
-				Name:  "daemon",
-				Usage: "Run the curator daemon",
-				Action: func(cli *cli.Context) error {
-					return daemonCommand(cli)
-				},
-			},
-			{
-				Name:  "serve",
-				Usage: "Serve curated articles over HTTP",
-				Action: func(cli *cli.Context) error {
-					return serverCommand(cli)
 				},
 			},
 		},
@@ -224,297 +287,6 @@ func main() {
 	}
 
 }
-
-func getConfigPath(cli *cli.Context) string {
-	/*
-		the config path is chosen in the following order
-			- env var: DBRANCH_CURATOR_CONFIG
-			- cli arg: --config
-			- curator.DefaultConfigPath()
-	*/
-	config_path := cli.String("config")
-
-	env_path := os.Getenv("DBRANCH_CURATOR_CONFIG")
-	if env_path != "" {
-		config_path = env_path
-	}
-
-	return config_path
-}
-
-//
-// command logic
-//
-
-func articleCommand(cli *cli.Context, sub_cmd string) error {
-	config, err := curator.LoadConfig(getConfigPath(cli))
-	if err != nil {
-		return err
-	}
-
-	app := curator.NewCurator(config)
-
-	args := cli.Args().Slice()
-
-	if sub_cmd == "add" {
-
-		if len(args) < 2 {
-			return errors.New("did not supply article name and cid")
-		}
-
-		err = app.AddRecordToLocal(&curator.ArticleRecord{Name: args[0], CID: args[1]}, curator.Curated)
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("added %s to curated list from cid: %s\n", args[0], args[1])
-
-	} else if sub_cmd == "remove" {
-
-		if len(args) < 1 {
-			return errors.New("did not supply article name")
-		}
-
-		err = app.RemoveRecordFromLocal(args[0], curator.Curated)
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("removed %s from curated list\n", args[0])
-
-	} else if sub_cmd == "list" {
-		list, err := app.ListArticles()
-		if err != nil {
-			return err
-		}
-		for index, article := range list.Items {
-			fmt.Printf("%2d) %s\n", index+1, article.Name)
-		}
-
-	} else if sub_cmd == "get" {
-
-		if len(args) < 1 {
-			return errors.New("did not supply article name")
-		}
-
-		article, err := app.GetArticle(args[0])
-		if err != nil {
-			return err
-		}
-
-		printJSON(article)
-
-	}
-
-	return nil
-}
-
-func cardanoCommand(cli *cli.Context, sub_cmd string) error {
-	config, err := curator.LoadConfig(getConfigPath(cli))
-	if err != nil {
-		return err
-	}
-
-	app := curator.NewCurator(config)
-	args := cli.Args().Slice()
-
-	if sub_cmd == "status" {
-		status, err := app.Status()
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("status: %s\n", status)
-
-	} else if sub_cmd == "wait" {
-		app.WaitForCardano()
-
-	} else if sub_cmd == "sign" {
-		if len(args) < 4 {
-			return errors.New("incorrect arguments")
-		}
-
-		transaction_id, err := app.SignArticle(args[0], args[1], args[2], args[3])
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("transaction id: %s\n", transaction_id)
-
-	} else if sub_cmd == "wallets" {
-		wallets, err := app.WalletIds()
-		if err != nil {
-			return err
-		}
-
-		for index, wallet := range wallets {
-			fmt.Printf("%d) %s\n", index+1, wallet)
-		}
-
-	} else if sub_cmd == "addresses" {
-		if len(args) < 1 {
-			return errors.New("did not supply wallet id")
-		}
-
-		addresses, err := app.WalletAddresses(args[0])
-		if err != nil {
-			return err
-		}
-
-		for index, address := range addresses {
-			fmt.Printf("%2d) %6s - %s\n", index+1, address.State, address.ID)
-		}
-
-	} else if sub_cmd == "transactions" {
-		if len(args) < 1 {
-			return errors.New("did not supply wallet id")
-		}
-
-		transactions, err := app.WalletTransactions(args[0])
-		if err != nil {
-			return err
-		}
-		printJSON(transactions)
-	} else if sub_cmd == "articles" {
-		if len(args) < 1 {
-			return errors.New("did not supply wallet id")
-		}
-
-		articles, err := app.ListSignedArticles(args[0])
-		if err != nil {
-			return err
-		}
-		printJSON(articles)
-	} else if sub_cmd == "db-ping" {
-		err := curator.CardanoDBPing()
-		if err != nil {
-			return err
-		} else {
-			fmt.Println("success!")
-		}
-	} else if sub_cmd == "db-meta" {
-		db_meta, err := curator.CardanoDBMeta()
-		if err != nil {
-			return err
-		}
-		printJSON(db_meta)
-	} else if sub_cmd == "db-records" {
-		records, err := curator.CardanoRecords()
-		if err != nil {
-			return err
-		}
-		printJSON(records)
-	} else if sub_cmd == "db-address" {
-		if len(args) < 1 {
-			return errors.New("did not supply address")
-		}
-		records, err := curator.CardanoRecordsByAddress(args[0])
-		if err != nil {
-			return err
-		}
-		printJSON(records)
-	} else if sub_cmd == "db-tx" {
-		if len(args) < 1 {
-			return errors.New("did not supply tx hash")
-		}
-		records, err := curator.CardanoRecordsByTxHash(args[0])
-		if err != nil {
-			return err
-		}
-		printJSON(records)
-	}
-
-	return nil
-}
-
-func indexCommand(cli *cli.Context, sub_cmd string) error {
-	configPath := getConfigPath(cli)
-	config, err := curator.LoadConfig(configPath)
-	if err != nil {
-		return err
-	}
-
-	app := curator.NewCurator(config)
-
-	if sub_cmd == "show" {
-		index, err := app.LoadArticleIndex()
-		if err != nil {
-			return err
-		}
-
-		printJSON(index)
-
-		return nil
-
-	} else if sub_cmd == "generate" {
-		return app.GenerateArticleIndex()
-	}
-
-	return nil
-}
-
-func peerCommand(cli *cli.Context, sub_cmd string) error {
-	configPath := getConfigPath(cli)
-	config, err := curator.LoadConfig(configPath)
-	if err != nil {
-		return err
-	}
-
-	if sub_cmd == "list" {
-		// if no command, print peers
-		fmt.Printf("showing %d peer(s)\n", len(config.AllowedPeers))
-
-		for index, peerId := range config.AllowedPeers {
-			fmt.Printf("%2d) %s\n", index+1, peerId)
-		}
-
-		return nil
-
-	} else if sub_cmd == "add" {
-		numAdded := config.AddPeers(cli.Args().Slice()...)
-		err = config.WriteConfig(configPath)
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("added %d peer(s)\n", numAdded)
-
-	}
-
-	return nil
-}
-
-func daemonCommand(cli *cli.Context) error {
-	config, err := curator.LoadConfig(getConfigPath(cli))
-	if err != nil {
-		return err
-	}
-
-	daemon, err := curator.NewCuratorDaemon(config)
-	if err != nil {
-		return err
-	}
-
-	daemon.SubscribeLoop()
-
-	return nil
-}
-
-func serverCommand(cli *cli.Context) error {
-	config, err := curator.LoadConfig(getConfigPath(cli))
-	if err != nil {
-		return err
-	}
-
-	server := curator.NewCuratorServer(config)
-	err = server.Start(":1323")
-	server.Logger.Fatal(err)
-	return err
-}
-
-//
-// misc
-//
 
 func printJSON(data interface{}) {
 	indented, err := json.MarshalIndent(data, "", "    ")

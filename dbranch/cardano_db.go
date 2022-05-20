@@ -1,9 +1,10 @@
-package curator
+package dbranch
 
 import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -14,6 +15,7 @@ var db *sql.DB
 func init() {
 	var err error
 
+	//  						    * * this is a test pw from the cardano-db-sync repo * *
 	conn_str := "user=postgres dbname=cexplorer password=v8hlDV0yMAHHlIurYupj sslmode=disable"
 
 	db, err = sql.Open("postgres", conn_str)
@@ -22,12 +24,14 @@ func init() {
 	}
 }
 
-//
-// postgres
-//
-
-func CardanoDBPing() error {
-	return db.Ping()
+type CardanoArticleRecord struct {
+	Name          string       `json:"name"`
+	Location      string       `json:"location"`
+	Address       string       `json:"address"`
+	TxId          int64        `json:"tx_id"`
+	TxHash        string       `json:"tx_hash"`
+	TxHashRaw     sql.RawBytes `json:"tx_hash_raw"`
+	DatePublished time.Time    `json:"date_published"`
 }
 
 type DBMeta struct {
@@ -35,6 +39,30 @@ type DBMeta struct {
 	StartTime   time.Time `json:"start_time"`
 	NetworkName string    `json:"network_name"`
 	Version     string    `json:"version"`
+}
+
+func formatRecordRows(rows *sql.Rows) ([]CardanoArticleRecord, error) {
+	records := []CardanoArticleRecord{}
+
+	for rows.Next() {
+		record := CardanoArticleRecord{}
+		err := rows.Scan(&record.Name, &record.Location, &record.Address, &record.TxId, &record.TxHashRaw, &record.DatePublished)
+		if err != nil {
+			return records, err
+		}
+		record.TxHash = hex.EncodeToString(record.TxHashRaw)
+		records = append(records, record)
+	}
+
+	return records, nil
+}
+
+//
+// db actions
+//
+
+func CardanoDBPing() error {
+	return db.Ping()
 }
 
 func CardanoDBMeta() (*DBMeta, error) {
@@ -57,32 +85,6 @@ func CardanoDBMeta() (*DBMeta, error) {
 	return db_meta, nil
 }
 
-type CardanoArticleRecord struct {
-	Name          string       `json:"name"`
-	Location      string       `json:"location"`
-	Address       string       `json:"address"`
-	TxId          int64        `json:"tx_id"`
-	TxHash        string       `json:"tx_hash"`
-	TxHashRaw     sql.RawBytes `json:"tx_hash_raw"`
-	DatePublished time.Time    `json:"date_published"`
-}
-
-func formatRecordRows(rows *sql.Rows) ([]CardanoArticleRecord, error) {
-	records := []CardanoArticleRecord{}
-
-	for rows.Next() {
-		record := CardanoArticleRecord{}
-		err := rows.Scan(&record.Name, &record.Location, &record.Address, &record.TxId, &record.TxHashRaw, &record.DatePublished)
-		if err != nil {
-			return records, err
-		}
-		record.TxHash = hex.EncodeToString(record.TxHashRaw)
-		records = append(records, record)
-	}
-
-	return records, nil
-}
-
 func CardanoRecords() ([]CardanoArticleRecord, error) {
 
 	query := `SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.id, tx.hash, block.time
@@ -96,7 +98,6 @@ func CardanoRecords() ([]CardanoArticleRecord, error) {
 	}
 
 	return formatRecordRows(rows)
-
 }
 
 func CardanoRecordsByAddress(addr string) ([]CardanoArticleRecord, error) {
@@ -120,26 +121,54 @@ func CardanoRecordsByTxHash(tx_hash string) (CardanoArticleRecord, error) {
 	WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL AND tx_out.index = 0
 		AND tx.hash = $1;
 	`
+	record := CardanoArticleRecord{}
+
 	tx_raw, err := hex.DecodeString(tx_hash)
 	if err != nil {
-		return CardanoArticleRecord{}, err
+		return record, err
 	}
 	rows, err := db.Query(query, tx_raw)
 	defer rows.Close()
 	if err != nil {
-		return CardanoArticleRecord{}, err
+		return record, err
 	}
 
 	results, err := formatRecordRows(rows)
 	if err != nil {
-		return CardanoArticleRecord{}, err
+		return record, err
 	}
 
 	if len(results) == 0 {
-		return CardanoArticleRecord{}, errors.New("could not find an article with tx hash: " + tx_hash)
+		return record, errors.New("could not find an article with tx hash: " + tx_hash)
 	}
 
 	return results[0], nil
+}
+
+func (c *Config) AddRecordByCardanoTxHash(tx_hash string) error {
+	record, err := CardanoRecordsByTxHash(tx_hash)
+	if err != nil {
+		return err
+	}
+
+	return c.AddCardanoRecordToLocal(&record)
+}
+
+func (c *Config) AddCardanoRecordToLocal(record *CardanoArticleRecord) error {
+
+	if !strings.HasPrefix(record.Location, "ipfs://") {
+		return errors.New("invalid location: " + record.Location)
+	}
+
+	article := &ArticleRecord{
+		Name:          record.Name,
+		CID:           strings.Replace(record.Location, "ipfs://", "", 1),
+		DatePublished: record.DatePublished,
+		CardanoTxHash: record.TxHash,
+	}
+
+	return c.AddRecordToLocal(article)
+
 }
 
 /*
