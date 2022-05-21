@@ -6,12 +6,27 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
 	"path"
 	"strings"
 	"time"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
 )
+
+var shell *ipfs.Shell
+
+const CuratedDir = "/dBranch/curated"
+const IndexFile = "/dBranch/index.json"
+
+func init() {
+	host := os.Getenv("IPFS_HOST")
+	if host == "" {
+		host = "localhost:5001"
+	}
+	shell = ipfs.NewShell(host)
+
+}
 
 //
 // article models
@@ -48,16 +63,16 @@ type ArticleIndex struct {
 	Articles []*ArticleRecord `json:"articles"`
 }
 
-func (c *Config) loadArticleRecord(name string) (*ArticleRecord, error) {
+func loadArticleRecord(name string) (*ArticleRecord, error) {
 	// init
 	record := &ArticleRecord{}
-	record_path := path.Join(c.CuratedDir, record.Name) + ".json"
+	record_path := path.Join(CuratedDir, record.Name) + ".json"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// read and decode record
-	record_raw, err := c.ipfsShell().FilesRead(ctx, record_path, ipfs.FilesLs.Stat(true))
+	record_raw, err := shell.FilesRead(ctx, record_path, ipfs.FilesLs.Stat(true))
 	if err != nil {
 		return record, err
 	}
@@ -70,16 +85,16 @@ func (c *Config) loadArticleRecord(name string) (*ArticleRecord, error) {
 	return record, nil
 }
 
-func (c *Config) loadArticle(name string) (*Article, error) {
+func loadArticle(name string) (*Article, error) {
 	// init
 	article := &Article{}
-	article_path := path.Join(c.CuratedDir, name)
+	article_path := path.Join(CuratedDir, name)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// read and decode article
-	article_raw, err := c.ipfsShell().FilesRead(ctx, article_path, ipfs.FilesLs.Stat(true))
+	article_raw, err := shell.FilesRead(ctx, article_path, ipfs.FilesLs.Stat(true))
 	if err != nil {
 		return article, err
 	}
@@ -88,13 +103,13 @@ func (c *Config) loadArticle(name string) (*Article, error) {
 	return article, err
 }
 
-func (c *Config) GetArticle(name string) (*ArticleRecord, *Article, error) {
-	record, err := c.loadArticleRecord(name)
+func GetArticle(name string) (*ArticleRecord, *Article, error) {
+	record, err := loadArticleRecord(name)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	article, err := c.loadArticle(name)
+	article, err := loadArticle(name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,7 +117,7 @@ func (c *Config) GetArticle(name string) (*ArticleRecord, *Article, error) {
 	return record, article, nil
 }
 
-func (c *Config) ListArticles() ([]string, error) {
+func ListArticles() ([]string, error) {
 	// init
 	list := []string{}
 
@@ -110,7 +125,7 @@ func (c *Config) ListArticles() ([]string, error) {
 	defer cancel()
 
 	// get listing
-	ls, err := c.ipfsShell().FilesLs(ctx, c.CuratedDir)
+	ls, err := shell.FilesLs(ctx, CuratedDir)
 	if err != nil {
 		return list, err
 	}
@@ -125,12 +140,12 @@ func (c *Config) ListArticles() ([]string, error) {
 	return list, nil
 }
 
-func (c *Config) AddRecordToLocal(record *ArticleRecord) error {
+func AddRecordToLocal(record *ArticleRecord) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	ipfs_source := path.Join("/ipfs", record.CID)
-	article_path := path.Join(c.CuratedDir, record.Name)
+	article_path := path.Join(CuratedDir, record.Name)
 	record_path := article_path + ".json"
 
 	//
@@ -140,13 +155,13 @@ func (c *Config) AddRecordToLocal(record *ArticleRecord) error {
 	ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	err := c.ipfsShell().FilesCp(ctx, ipfs_source, article_path)
+	err := shell.FilesCp(ctx, ipfs_source, article_path)
 	if err != nil {
 		return err
 	}
 
 	// pin article because FilesCp does not copy the entire contents of the file, just the root node of the DAG
-	err = c.ipfsShell().Pin(record.CID)
+	err = shell.Pin(record.CID)
 	if err != nil {
 		return err
 	}
@@ -155,12 +170,12 @@ func (c *Config) AddRecordToLocal(record *ArticleRecord) error {
 	// get meteadata
 	//
 
-	stat, err := c.ipfsShell().FilesStat(ctx, article_path)
+	stat, err := shell.FilesStat(ctx, article_path)
 	if err != nil {
 		return err
 	}
 
-	article, err := c.loadArticle(record.Name)
+	article, err := loadArticle(record.Name)
 	if err != nil {
 		return err
 	}
@@ -179,13 +194,13 @@ func (c *Config) AddRecordToLocal(record *ArticleRecord) error {
 	}
 
 	json_reader := bytes.NewReader(mashalled_record)
-	err = c.ipfsShell().FilesWrite(ctx, record_path, json_reader)
+	err = shell.FilesWrite(ctx, record_path, json_reader)
 	if err != nil {
 		return err
 	}
 
 	// refresh article index
-	err = c.RefreshArticleIndex()
+	err = RefreshArticleIndex()
 	if err != nil {
 		return err
 	}
@@ -194,39 +209,39 @@ func (c *Config) AddRecordToLocal(record *ArticleRecord) error {
 	return nil
 }
 
-func (c *Config) RemoveRecordFromLocal(name string) error {
+func RemoveRecordFromLocal(name string) error {
 	log.Printf("removing article: %s\n", name)
 
 	// init
-	article_path := path.Join(c.CuratedDir, name)
+	article_path := path.Join(CuratedDir, name)
 	record_path := article_path + ".json"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	// delete files
-	err := c.ipfsShell().FilesRm(ctx, record_path, true)
+	err := shell.FilesRm(ctx, record_path, true)
 	if err != nil {
 		return err
 	}
 
-	err = c.ipfsShell().FilesRm(ctx, article_path, true)
+	err = shell.FilesRm(ctx, article_path, true)
 	if err != nil {
 		return err
 	}
 
 	log.Printf("removed article: %s\n", name)
 
-	return c.RefreshArticleIndex()
+	return RefreshArticleIndex()
 }
 
 //
 // index
 //
 
-func (c *Config) GenerateArticleIndex() (*ArticleIndex, error) {
+func GenerateArticleIndex() (*ArticleIndex, error) {
 	// init
-	names, err := c.ListArticles()
+	names, err := ListArticles()
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +249,7 @@ func (c *Config) GenerateArticleIndex() (*ArticleIndex, error) {
 	index := &ArticleIndex{}
 
 	for _, name := range names {
-		record, err := c.loadArticleRecord(name)
+		record, err := loadArticleRecord(name)
 		if err != nil {
 			return index, err
 		}
@@ -244,13 +259,13 @@ func (c *Config) GenerateArticleIndex() (*ArticleIndex, error) {
 	return index, nil
 }
 
-func (c *Config) LoadArticleIndex() (*ArticleIndex, error) {
+func LoadArticleIndex() (*ArticleIndex, error) {
 	index := &ArticleIndex{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	content, err := c.ipfsShell().FilesRead(ctx, c.Index)
+	content, err := shell.FilesRead(ctx, IndexFile)
 	if err != nil {
 		return index, err
 	}
@@ -263,7 +278,7 @@ func (c *Config) LoadArticleIndex() (*ArticleIndex, error) {
 	return index, nil
 }
 
-func (c *Config) WriteArticleIndex(index *ArticleIndex) error {
+func WriteArticleIndex(index *ArticleIndex) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -274,7 +289,7 @@ func (c *Config) WriteArticleIndex(index *ArticleIndex) error {
 		return errors.New("failed to encode article index: " + err.Error())
 	}
 
-	err = c.ipfsShell().FilesWrite(ctx, c.Index, output, ipfs.FilesWrite.Create(true), ipfs.FilesWrite.Truncate(true))
+	err = shell.FilesWrite(ctx, IndexFile, output, ipfs.FilesWrite.Create(true), ipfs.FilesWrite.Truncate(true))
 	if err != nil {
 		return errors.New("failed to write article index: " + err.Error())
 	}
@@ -282,13 +297,13 @@ func (c *Config) WriteArticleIndex(index *ArticleIndex) error {
 	return nil
 }
 
-func (c *Config) RefreshArticleIndex() error {
-	index, err := c.GenerateArticleIndex()
+func RefreshArticleIndex() error {
+	index, err := GenerateArticleIndex()
 	if err != nil {
 		return err
 	}
 
-	err = c.WriteArticleIndex(index)
+	err = WriteArticleIndex(index)
 	if err != nil {
 		return err
 	}

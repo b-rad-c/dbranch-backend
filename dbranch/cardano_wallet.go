@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"syscall"
 	"time"
 
@@ -18,13 +19,18 @@ import (
 //
 
 var client = &http.Client{}
+var wallet_host string
 
 func init() {
 	client = &http.Client{Timeout: 30 * time.Second}
+	wallet_host = os.Getenv("CARDANO_WALLET_HOST")
+	if wallet_host == "" {
+		wallet_host = "http://localhost:8090"
+	}
 }
 
-func (c *Config) getRequest(endpoint string) (interface{}, error) {
-	url := c.CardanoWalletHost + endpoint
+func getRequest(endpoint string) (interface{}, error) {
+	url := wallet_host + endpoint
 
 	var data interface{}
 
@@ -112,10 +118,10 @@ type ArticleTransaction struct {
 // wallet apis
 //
 
-func (c *Config) WalletIds() ([]string, error) {
+func WalletIds() ([]string, error) {
 	var wallet_ids []string
 
-	resp, err := c.getRequest("/v2/wallets")
+	resp, err := getRequest("/v2/wallets")
 	if err != nil {
 		return wallet_ids, err
 	}
@@ -127,10 +133,10 @@ func (c *Config) WalletIds() ([]string, error) {
 	return wallet_ids, nil
 }
 
-func (c *Config) WalletAddresses(wallet_id string) ([]CardanoAddress, error) {
+func WalletAddresses(wallet_id string) ([]CardanoAddress, error) {
 	var addresses []CardanoAddress
 
-	resp, err := c.getRequest("/v2/wallets/" + wallet_id + "/addresses")
+	resp, err := getRequest("/v2/wallets/" + wallet_id + "/addresses")
 	if err != nil {
 		return addresses, err
 	}
@@ -147,11 +153,11 @@ func (c *Config) WalletAddresses(wallet_id string) ([]CardanoAddress, error) {
 	return addresses, nil
 }
 
-func (c *Config) walletTransactions(wallet_id string) ([]CardanoTransaction, error) {
+func walletTransactions(wallet_id string) ([]CardanoTransaction, error) {
 	// init
 	transactions := make([]CardanoTransaction, 0)
 
-	url := c.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
+	url := wallet_host + "/v2/wallets/" + wallet_id + "/transactions"
 
 	// request
 	resp, err := client.Get(url)
@@ -174,9 +180,9 @@ func (c *Config) walletTransactions(wallet_id string) ([]CardanoTransaction, err
 // article signing
 //
 
-func (c *Config) ListSignedArticles(wallet_id string) ([]ArticleTransaction, error) {
+func ListSignedArticles(wallet_id string) ([]ArticleTransaction, error) {
 
-	transactions, err := c.walletTransactions(wallet_id)
+	transactions, err := walletTransactions(wallet_id)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +221,7 @@ func (c *Config) ListSignedArticles(wallet_id string) ([]ArticleTransaction, err
 	return articles, nil
 }
 
-func (c *Config) SignArticle(wallet_id, address, article_name, location string) (string, error) {
+func SignArticle(wallet_id, address, article_name, location string) (string, error) {
 	// get user password
 	fmt.Println("Cardano wallet password: ")
 	password, err := terminal.ReadPassword(int(syscall.Stdin))
@@ -257,7 +263,7 @@ func (c *Config) SignArticle(wallet_id, address, article_name, location string) 
 		return "", errors.New("Error encoding json body: " + err.Error())
 	}
 
-	url := c.CardanoWalletHost + "/v2/wallets/" + wallet_id + "/transactions"
+	url := wallet_host + "/v2/wallets/" + wallet_id + "/transactions"
 	resp, err := client.Post(url, "application/json; charset=UTF-8", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", errors.New(url + " returned error: " + err.Error())
@@ -295,8 +301,8 @@ func (c *Config) SignArticle(wallet_id, address, article_name, location string) 
 // Daemon
 //
 
-func (c *Config) Status() (string, error) {
-	resp, err := c.getRequest("/v2/network/information")
+func Status() (string, error) {
+	resp, err := getRequest("/v2/network/information")
 	if err != nil {
 		return "", err
 	}
@@ -306,10 +312,10 @@ func (c *Config) Status() (string, error) {
 	return status, nil
 }
 
-func (c *Config) WaitForCardano() {
+func WaitForCardano() {
 	status := ""
 	for status != "ready" {
-		status, _ = c.Status()
+		status, _ = Status()
 		time.Sleep(time.Second * 5)
 	}
 }

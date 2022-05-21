@@ -1,12 +1,5 @@
 package dbranch
 
-import (
-	"fmt"
-	"os"
-	"strings"
-	"testing"
-)
-
 var (
 	sampleArticle = `{
 		"metadata": {
@@ -27,8 +20,8 @@ var (
 	sampleArticleCID  = "Qmafd1poTdPLa6VAWGDunquRWZa3BYNZEyCnzFdURHm4hm"
 )
 
-func TestMain(m *testing.M) {
-	config := DefaultConfig()
+/*func TestMain(m *testing.M) {
+	// config := DefaultConfig()
 	cid, err := config.ipfsShell().Add(strings.NewReader(sampleArticle))
 	fmt.Printf("sample id: %s\n", cid)
 	if err != nil {
@@ -40,7 +33,7 @@ func TestMain(m *testing.M) {
 	os.Exit(result)
 }
 
-/*func TestAddArticle(t *testing.T) {
+func TestAddArticle(t *testing.T) {
 	err := curator.AddToCurated(&IncomingArticle{Name: sampleArticleName, CID: sampleArticleCID})
 	if err != nil {
 		t.Errorf("error adding to curated: %s", err.Error())

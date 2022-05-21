@@ -2,6 +2,7 @@ package dbranch
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/labstack/echo/v4"
 )
@@ -14,14 +15,14 @@ type errorMsg struct {
 	Error string `json:"error"`
 }
 
-func (c *Config) middleWare(next echo.HandlerFunc) echo.HandlerFunc {
+func middleWare(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return next(c)
 	}
 }
 
-func (c *Config) articleIndex(e echo.Context) error {
-	index, err := c.LoadArticleIndex()
+func articleIndex(e echo.Context) error {
+	index, err := LoadArticleIndex()
 	if err != nil {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
@@ -34,8 +35,8 @@ type articleListResponse struct {
 	Articles []string `json:"articles"`
 }
 
-func (c *Config) articleList(e echo.Context) error {
-	list, err := c.ListArticles()
+func articleList(e echo.Context) error {
+	list, err := ListArticles()
 	if err != nil {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
@@ -44,8 +45,8 @@ func (c *Config) articleList(e echo.Context) error {
 	return e.JSON(http.StatusOK, &articleListResponse{Articles: list})
 }
 
-func (c *Config) articleGet(e echo.Context) error {
-	record, article, err := c.GetArticle(e.Param("name"))
+func articleGet(e echo.Context) error {
+	record, article, err := GetArticle(e.Param("name"))
 
 	if err != nil {
 		e.Logger().Error(err)
@@ -59,18 +60,25 @@ func (c *Config) articleGet(e echo.Context) error {
 	return e.JSON(http.StatusOK, &FullArticle{Article: article, Record: record})
 }
 
-func NewCuratorServer(config *Config) *echo.Echo {
+func CuratorServer() error {
+
+	port := os.Getenv("DBRANCH_SERVER_PORT")
+	if port == "" {
+		port = "1323"
+	}
 
 	server := echo.New()
 
-	server.Use(config.middleWare)
+	server.Use(middleWare)
 
-	server.GET("/article/:name", config.articleGet)
-	server.GET("/article/list", config.articleList)
-	server.GET("/article/index", config.articleIndex)
+	server.GET("/article/:name", articleGet)
+	server.GET("/article/list", articleList)
+	server.GET("/article/index", articleIndex)
 	server.GET("/*", func(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	})
 
-	return server
+	err := server.Start(":" + port)
+	server.Logger.Fatal(err)
+	return err
 }

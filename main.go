@@ -15,42 +15,12 @@ import (
 // cli interface
 //
 
-var config *dbranch.Config
-
-func loadConfig(cli *cli.Context) error {
-
-	/*
-		the config path is chosen in the following order
-			- env var: DBRANCH_CURATOR_CONFIG
-			- cli arg: --config
-			- curator.DefaultConfigPath()
-	*/
-	var err error
-	config_path := cli.String("config")
-
-	env_path := os.Getenv("DBRANCH_CURATOR_CONFIG")
-	if env_path != "" {
-		config_path = env_path
-	}
-
-	config, err = dbranch.LoadConfig(config_path)
-	return err
-}
-
 func main() {
 
 	app := &cli.App{
 		Name:    "dBranch Backend",
-		Usage:   "Curate articles from the dBranch news protocol",
+		Usage:   "Curate articles from the dBranch news protocol!",
 		Version: "0.1.0",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "config",
-				Aliases: []string{"c"},
-				Usage:   "The path to the dbranch config file",
-				Value:   dbranch.DefaultConfigPath(),
-			},
-		},
 		Commands: []*cli.Command{
 			{
 				Name:  "article",
@@ -60,7 +30,11 @@ func main() {
 						Name:  "get",
 						Usage: "get a curated article",
 						Action: func(cli *cli.Context) error {
-							record, article, err := config.GetArticle(cli.Args().First())
+							name := cli.Args().First()
+							if name == "" {
+								return errors.New("missing article name")
+							}
+							record, article, err := dbranch.GetArticle(name)
 							if err != nil {
 								return err
 							}
@@ -69,14 +43,26 @@ func main() {
 						},
 					},
 					{
+						Name:  "list",
+						Usage: "list curated articles",
+						Action: func(cli *cli.Context) error {
+							names, err := dbranch.ListArticles()
+							if err != nil {
+								return err
+							}
+							printJSON(names)
+							return nil
+						},
+					},
+					{
 						Name:  "index",
-						Usage: "generate or view the article index which lists curated and published (signed w cardano) articles",
+						Usage: "refresh or view the article index which lists curated and published (signed w cardano) articles",
 						Subcommands: []*cli.Command{
 							{
 								Name:  "show",
 								Usage: "show the article index",
 								Action: func(cli *cli.Context) error {
-									index, err := config.LoadArticleIndex()
+									index, err := dbranch.LoadArticleIndex()
 									if err != nil {
 										return err
 									}
@@ -89,7 +75,7 @@ func main() {
 								Name:  "refresh",
 								Usage: "refresh the article index",
 								Action: func(cli *cli.Context) error {
-									return config.RefreshArticleIndex()
+									return dbranch.RefreshArticleIndex()
 								},
 							},
 						},
@@ -130,7 +116,12 @@ func main() {
 						Name:  "status",
 						Usage: "show db sync status",
 						Action: func(cli *cli.Context) error {
-							return errors.New("not implemented")
+							db_sync, err := dbranch.CardanoDBSyncStatus()
+							if err != nil {
+								return err
+							}
+							fmt.Printf("{\"sync_progress\": %f}\n", *db_sync)
+							return nil
 						},
 					},
 					{
@@ -143,12 +134,34 @@ func main() {
 								Usage:   "filter records by public address",
 							},
 							&cli.StringFlag{
-								Name:  "hash",
-								Usage: "filter records by transaction hash",
+								Name:    "tx_hash",
+								Aliases: []string{"tx"},
+								Usage:   "filter records by transaction hash",
 							},
 						},
 						Action: func(cli *cli.Context) error {
-							return errors.New("not implemented")
+							address := cli.String("address")
+							tx_hash := cli.String("tx_hash")
+							var err error
+							var record dbranch.CardanoArticleRecord
+							var records []dbranch.CardanoArticleRecord
+
+							if address != "" && tx_hash != "" {
+								return errors.New("cannot specify both address and tx_hash")
+							} else if address != "" {
+								records, err = dbranch.CardanoRecordsByAddress(address)
+							} else if tx_hash != "" {
+								record, err = dbranch.CardanoRecordsByTxHash(tx_hash)
+								records = []dbranch.CardanoArticleRecord{record}
+							} else {
+								records, err = dbranch.CardanoRecords()
+							}
+
+							if err != nil {
+								return err
+							}
+							printJSON(records)
+							return nil
 						},
 					},
 					{
@@ -156,7 +169,11 @@ func main() {
 						Usage:     "add article to curated list by cardano tx hash",
 						ArgsUsage: "add-tx [tx_hash]",
 						Action: func(cli *cli.Context) error {
-							return errors.New("not implemented")
+							tx_hash := cli.Args().First()
+							if tx_hash == "" {
+								return fmt.Errorf("missing tx_hash")
+							}
+							return dbranch.AddRecordByCardanoTxHash(tx_hash)
 						},
 					},
 				},
@@ -171,7 +188,7 @@ func main() {
 						Name:  "status",
 						Usage: "show cardano node network status",
 						Action: func(cli *cli.Context) error {
-							status, err := config.Status()
+							status, err := dbranch.Status()
 							if err != nil {
 								return err
 							}
@@ -184,7 +201,7 @@ func main() {
 						Name:  "wait",
 						Usage: "wait for network to become ready",
 						Action: func(cli *cli.Context) error {
-							config.WaitForCardano()
+							dbranch.WaitForCardano()
 							return nil
 						},
 					},
@@ -192,7 +209,7 @@ func main() {
 						Name:  "list",
 						Usage: "list available wallets by id",
 						Action: func(cli *cli.Context) error {
-							wallets, err := config.WalletIds()
+							wallets, err := dbranch.WalletIds()
 							if err != nil {
 								return err
 							}
@@ -207,7 +224,11 @@ func main() {
 						Name:  "addresses",
 						Usage: "list addresses for a given wallet id",
 						Action: func(cli *cli.Context) error {
-							addresses, err := config.WalletAddresses(cli.Args().First())
+							wallet_id := cli.Args().First()
+							if wallet_id == "" {
+								return fmt.Errorf("missing wallet id")
+							}
+							addresses, err := dbranch.WalletAddresses(wallet_id)
 							if err != nil {
 								return err
 							}
@@ -223,7 +244,7 @@ func main() {
 						Usage: "sign an article by sending a transaction to your own wallet with metadata about the article",
 						Action: func(cli *cli.Context) error {
 							args := cli.Args().Slice()
-							transaction_id, err := config.SignArticle(args[0], args[1], args[2], args[3])
+							transaction_id, err := dbranch.SignArticle(args[0], args[1], args[2], args[3])
 							if err != nil {
 								return err
 							}
@@ -237,7 +258,7 @@ func main() {
 						Usage: `list published articles for a wallet id; list may be incomplete as it will only store articles published singed by this wallet instance
 						use "cardano-db records" or "article index show" to see all articles`,
 						Action: func(cli *cli.Context) error {
-							articles, err := config.ListSignedArticles(cli.Args().First())
+							articles, err := dbranch.ListSignedArticles(cli.Args().First())
 							if err != nil {
 								return err
 							}
@@ -261,19 +282,8 @@ func main() {
 					{
 						Name:  "server",
 						Usage: "run curator web server",
-						Flags: []cli.Flag{
-							&cli.IntFlag{
-								Name:    "port",
-								Aliases: []string{"p"},
-								Usage:   "The port to serve on",
-								Value:   1323,
-							},
-						},
 						Action: func(cli *cli.Context) error {
-							server := dbranch.NewCuratorServer(config)
-							err := server.Start(fmt.Sprintf(":%d", cli.Int("port")))
-							server.Logger.Fatal(err)
-							return err
+							return dbranch.CuratorServer()
 						},
 					},
 				},
