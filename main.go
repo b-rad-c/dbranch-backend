@@ -240,8 +240,9 @@ func main() {
 						},
 					},
 					{
-						Name:  "sign",
-						Usage: "sign an article by sending a transaction to your own wallet with metadata about the article",
+						Name:      "sign",
+						Usage:     "sign an article by sending a transaction to your own wallet with metadata about the article",
+						UsageText: "sign [wallet_id] [address] [article_name] [location]",
 						Action: func(cli *cli.Context) error {
 							args := cli.Args().Slice()
 							transaction_id, err := dbranch.SignArticle(args[0], args[1], args[2], args[3])
