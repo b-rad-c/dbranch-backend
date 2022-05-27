@@ -312,7 +312,7 @@ func Status() (string, error) {
 	return status, nil
 }
 
-func WaitForCardano() {
+func WaitForCardanoWallet() {
 	status := ""
 	for status != "ready" {
 		status, _ = Status()

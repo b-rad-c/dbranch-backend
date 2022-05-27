@@ -33,13 +33,9 @@ func init() {
 //
 
 type Article struct {
-	Metadata ArticleMetadata        `json:"metadata"`
+	Metadata *ArticleMetadata       `json:"metadata"`
 	Contents map[string]interface{} `json:"contents"`
-}
-
-type FullArticle struct {
-	Article *Article       `json:"article"`
-	Record  *ArticleRecord `json:"record"`
+	Record   *ArticleRecord         `json:"record,omitempty"`
 }
 
 type ArticleMetadata struct {
@@ -50,17 +46,21 @@ type ArticleMetadata struct {
 }
 
 type ArticleRecord struct {
-	Name          string          `json:"name"`
-	Size          uint64          `json:"size"`
-	CID           string          `json:"cid"`
-	DateAdded     time.Time       `json:"date_added"`                // date curated in UTC
-	DatePublished time.Time       `json:"date_published"`            // publish date in UTC
-	CardanoTxHash string          `json:"cardano_tx_hash,omitempty"` // cardano transaction id
-	Metadata      ArticleMetadata `json:"metadata"`                  // article metadata (cached from .news file)
+	Name          string    `json:"name"`
+	Size          uint64    `json:"size"`
+	CID           string    `json:"cid"`
+	DateAdded     time.Time `json:"date_added"`                // date curated in UTC
+	DatePublished time.Time `json:"date_published"`            // publish date in UTC
+	CardanoTxHash string    `json:"cardano_tx_hash,omitempty"` // cardano transaction id
+}
+
+type ArticleIndexItem struct {
+	Record   *ArticleRecord   `json:"record"`
+	Metadata *ArticleMetadata `json:"metadata"`
 }
 
 type ArticleIndex struct {
-	Articles []*ArticleRecord `json:"articles"`
+	Articles []*ArticleIndexItem `json:"articles"`
 }
 
 func loadArticleRecord(name string) (*ArticleRecord, error) {
@@ -103,18 +103,19 @@ func loadArticle(name string) (*Article, error) {
 	return article, err
 }
 
-func GetArticle(name string) (*ArticleRecord, *Article, error) {
-	record, err := loadArticleRecord(name)
-	if err != nil {
-		return nil, nil, err
-	}
-
+func GetArticle(name string) (*Article, error) {
 	article, err := loadArticle(name)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return record, article, nil
+	record, err := loadArticleRecord(name)
+	if err != nil {
+		return nil, err
+	}
+
+	article.Record = record
+	return article, nil
 }
 
 func ListArticles() ([]string, error) {
@@ -167,7 +168,7 @@ func AddRecordToLocal(record *ArticleRecord) error {
 	}
 
 	//
-	// get meteadata
+	// set meteadata
 	//
 
 	stat, err := shell.FilesStat(ctx, article_path)
@@ -175,14 +176,8 @@ func AddRecordToLocal(record *ArticleRecord) error {
 		return err
 	}
 
-	article, err := loadArticle(record.Name)
-	if err != nil {
-		return err
-	}
-
 	record.Size = stat.Size
 	record.DateAdded = time.Now().UTC()
-	record.Metadata = article.Metadata
 
 	//
 	// write article record / metadata
@@ -249,11 +244,12 @@ func GenerateArticleIndex() (*ArticleIndex, error) {
 	index := &ArticleIndex{}
 
 	for _, name := range names {
-		record, err := loadArticleRecord(name)
+		article, err := GetArticle(name)
 		if err != nil {
 			return index, err
 		}
-		index.Articles = append(index.Articles, record)
+		item := &ArticleIndexItem{Record: article.Record, Metadata: article.Metadata}
+		index.Articles = append(index.Articles, item)
 	}
 
 	return index, nil

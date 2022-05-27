@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ import (
 var db *sql.DB
 
 func fileValue(file string) string {
-	data, err := ioutil.ReadFile("read.go")
+	data, err := ioutil.ReadFile(file)
 	if err != nil {
 		panic(err)
 	}
@@ -42,8 +43,7 @@ func init() {
 
 	pw_file := os.Getenv("POSTGRES_PASSWORD_FILE")
 	if pw_file == "" {
-		// * * * this is a test pw from the cardano-db-sync repo * * *
-		pw = "v8hlDV0yMAHHlIurYupj"
+		pw = fileValue("../secrets/postgres_password")
 	} else {
 		pw = fileValue(pw_file)
 	}
@@ -69,15 +69,9 @@ func init() {
 	}
 }
 
-type CardanoArticleRecord struct {
-	Name          string       `json:"name"`
-	Location      string       `json:"location"`
-	Address       string       `json:"address"`
-	TxId          int64        `json:"tx_id"`
-	TxHash        string       `json:"tx_hash"`
-	TxHashRaw     sql.RawBytes `json:"tx_hash_raw"`
-	DatePublished time.Time    `json:"date_published"`
-}
+//
+// db info
+//
 
 type DBMeta struct {
 	ID          int64     `json:"id"`
@@ -86,28 +80,28 @@ type DBMeta struct {
 	Version     string    `json:"version"`
 }
 
-func formatRecordRows(rows *sql.Rows) ([]CardanoArticleRecord, error) {
-	records := []CardanoArticleRecord{}
-
-	for rows.Next() {
-		record := CardanoArticleRecord{}
-		err := rows.Scan(&record.Name, &record.Location, &record.Address, &record.TxId, &record.TxHashRaw, &record.DatePublished)
-		if err != nil {
-			return records, err
-		}
-		record.TxHash = hex.EncodeToString(record.TxHashRaw)
-		records = append(records, record)
-	}
-
-	return records, nil
+type DBStatus struct {
+	Percent       *float32      `json:"percent"`
+	LastBlockTime *time.Time    `json:"last_block_time"`
+	SecondsBehind time.Duration `json:"seconds_behind"`
+	TimeBehind    string        `json:"time_behind"`
 }
-
-//
-// db actions
-//
 
 func CardanoDBPing() error {
 	return db.Ping()
+}
+
+func WaitForCardanoDB() {
+
+	for {
+		log.Println("checking if cardano db is ready")
+		err := CardanoDBPing()
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second * 5)
+	}
+	log.Println("cardano db is ready")
 }
 
 func CardanoDBMeta() (*DBMeta, error) {
@@ -130,84 +124,131 @@ func CardanoDBMeta() (*DBMeta, error) {
 	return db_meta, nil
 }
 
-func CardanoDBSyncStatus() (*float32, error) {
-	var percent float32
+func CardanoDBSyncStatus() (DBStatus, error) {
+	status := DBStatus{}
 
 	err := db.QueryRow(`select
 	100 * (extract (epoch from (max (time) at time zone 'UTC')) - extract (epoch from (min (time) at time zone 'UTC')))
 	/ (extract (epoch from (now () at time zone 'UTC')) - extract (epoch from (min (time) at time zone 'UTC')))
-   	as sync_percent from block ;`).Scan(&percent)
+   	as sync_percent from block;`).Scan(&status.Percent)
 
-	return &percent, err
+	if err != nil {
+		return status, err
+	}
+
+	err = db.QueryRow("select max(time) from block;").Scan(&status.LastBlockTime)
+	if err != nil {
+		return status, err
+	}
+
+	diff := time.Since(*status.LastBlockTime)
+	status.SecondsBehind = diff / 1000000000
+	status.TimeBehind = diff.String()
+	return status, nil
 }
 
-func CardanoRecords(filters ...string) ([]CardanoArticleRecord, error) {
+//
+// db records
+//
 
-	query := `SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.id, tx.hash, block.time
+type CardanoArticleRecord struct {
+	Name          string       `json:"name"`
+	Location      string       `json:"location"`
+	Address       string       `json:"address"`
+	BlockNumber   uint         `json:"block_number"`
+	TxId          int64        `json:"tx_id"`
+	TxHash        string       `json:"tx_hash"`
+	TxHashRaw     sql.RawBytes `json:"tx_hash_raw"`
+	DatePublished time.Time    `json:"date_published"`
+}
+
+type RecordFilter func(index int, query string, args []any) (string, []any, error)
+
+func formatRecordRows(rows *sql.Rows) ([]CardanoArticleRecord, error) {
+	records := []CardanoArticleRecord{}
+
+	for rows.Next() {
+		record := CardanoArticleRecord{}
+		err := rows.Scan(
+			&record.Name,
+			&record.Location,
+			&record.Address,
+			&record.TxId,
+			&record.TxHashRaw,
+			&record.DatePublished,
+			&record.BlockNumber,
+		)
+		if err != nil {
+			return records, err
+		}
+		record.TxHash = hex.EncodeToString(record.TxHashRaw)
+		records = append(records, record)
+	}
+
+	return records, nil
+}
+
+func AddressFilter(address string) RecordFilter {
+	return func(index int, query string, args []any) (string, []any, error) {
+		query = fmt.Sprintf("%s AND tx_out.address = $%d", query, index)
+		return query, append(args, address), nil
+	}
+}
+
+func TxHashFilter(tx_hash string) RecordFilter {
+	return func(index int, query string, args []any) (string, []any, error) {
+		query = fmt.Sprintf("%s AND tx.hash = $%d", query, index)
+		tx_raw, err := hex.DecodeString(tx_hash)
+		if err != nil {
+			return query, args, err
+		}
+		return query, append(args, tx_raw), nil
+	}
+}
+
+// filter for blocks where block_no > block_number
+func SinceBlockFilter(block_number uint) RecordFilter {
+	return func(index int, query string, args []any) (string, []any, error) {
+		query = fmt.Sprintf("%s AND block_no > $%d", query, index)
+		return query, append(args, block_number), nil
+	}
+}
+
+func ListCardanoRecords(filters ...RecordFilter) ([]CardanoArticleRecord, error) {
+
+	query := `SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.id, tx.hash, block.time, block.block_no
 	FROM ((tx_metadata INNER JOIN tx ON tx_metadata.tx_id = tx.id) INNER JOIN block ON tx.block_id = block.id) INNER JOIN tx_out ON tx.id = tx_out.tx_id
 	WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL AND tx_out.index = 0`
+	args := []any{}
+	var err error
 
-	rows, err := db.Query(query)
+	for index, filter := range filters {
+		query, args, err = filter(index+1, query, args)
+		if err != nil {
+			return []CardanoArticleRecord{}, err
+		}
+	}
+
+	rows, err := db.Query(query, args...)
 	defer rows.Close()
 	if err != nil {
 		return nil, err
 	}
 
 	return formatRecordRows(rows)
-}
-
-func CardanoRecordsByAddress(addr string) ([]CardanoArticleRecord, error) {
-	query := `SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.id, tx.hash, block.time
-	FROM ((tx INNER JOIN tx_metadata ON tx.id = tx_metadata.tx_id) INNER JOIN tx_out ON tx.id = tx_out.tx_id) INNER JOIN block ON tx.block_id = block.id
-	WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL AND tx_out.index = 0
-		AND tx_out.address = $1;`
-
-	rows, err := db.Query(query, addr)
-	defer rows.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	return formatRecordRows(rows)
-}
-
-func CardanoRecordsByTxHash(tx_hash string) (CardanoArticleRecord, error) {
-	query := `SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.id, tx.hash, block.time
-	FROM ((tx INNER JOIN tx_metadata ON tx_metadata.tx_id = tx.id) INNER JOIN block ON tx.block_id = block.id) INNER JOIN tx_out ON tx.id = tx_out.tx_id
-	WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL AND tx_out.index = 0
-		AND tx.hash = $1;
-	`
-	record := CardanoArticleRecord{}
-
-	tx_raw, err := hex.DecodeString(tx_hash)
-	if err != nil {
-		return record, err
-	}
-	rows, err := db.Query(query, tx_raw)
-	defer rows.Close()
-	if err != nil {
-		return record, err
-	}
-
-	results, err := formatRecordRows(rows)
-	if err != nil {
-		return record, err
-	}
-
-	if len(results) == 0 {
-		return record, errors.New("could not find an article with tx hash: " + tx_hash)
-	}
-
-	return results[0], nil
 }
 
 func AddRecordByCardanoTxHash(tx_hash string) error {
-	record, err := CardanoRecordsByTxHash(tx_hash)
+	record, err := ListCardanoRecords(TxHashFilter(tx_hash))
 	if err != nil {
 		return err
 	}
 
-	return AddCardanoRecordToLocal(&record)
+	if len(record) == 0 {
+		return errors.New("no record found for hash: " + tx_hash)
+	}
+
+	return AddCardanoRecordToLocal(&record[0])
 }
 
 func AddCardanoRecordToLocal(record *CardanoArticleRecord) error {
@@ -224,63 +265,4 @@ func AddCardanoRecordToLocal(record *CardanoArticleRecord) error {
 	}
 
 	return AddRecordToLocal(article)
-
 }
-
-/*
-queries
-
-- find article by name
-select tx_metadata.json from tx_metadata where tx_metadata.key = '451' and tx_metadata.json->>'name' = 'dbranch_intro.news';
-
-- list all articles
-		SELECT tx_metadata.id, tx_metadata.json, tx_metadata.tx_id
-		FROM tx_metadata
-		WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL;
-
-- articles with tx id
-SELECT tx_metadata.json, tx_metadata.tx_id FROM tx_metadata WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL;
-
-- articles with tx hash
-SELECT tx.hash, tx_metadata.tx_id, tx_metadata.json
-FROM tx_metadata
-INNER JOIN tx ON tx_metadata.tx_id = tx.id
-WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL;
-
--- article by tx hash
-SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx.hash
-FROM tx INNER JOIN tx_metadata ON tx_metadata.tx_id = tx.id
-WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL
-	AND tx.hash = '\xc40dbc63df9966a4704880cd0da79dfff68cc60fcce9bd04a35c81909ff7721a';
-
-- articles for address
-SELECT tx_metadata.json->>'name', tx_metadata.json->>'loc', tx_out.address, tx.hash
-FROM (tx INNER JOIN tx_metadata ON tx.id = tx_metadata.tx_id) INNER JOIN tx_out ON tx.id = tx_out.tx_id
-WHERE tx_metadata.key = '451' AND tx_metadata.json->>'name' IS NOT NULL AND tx_metadata.json->>'loc' IS NOT NULL
-	AND tx_out.address = 'addr_test1qzp4lqggu2qfr2qs5plsjh8q7l9y3afcxzwwyfv3em2aqe0k69w3xsq4ruy5tenk59cshs2m26ftpdvacmqcn7yfljps7zazwv';
-
--- tx in for a transaction
-SELECT * FROM tx_in WHERE tx_in.tx_out_id = 4037362;
-
--- tx outs for a transaction
-SELECT tx_out.id, tx_out.tx_id, tx_out.index, tx_out.address, tx_out.value FROM tx_out WHERE tx_out.tx_id = 4041637;
-
--- tx outs for a transaction hash
-SELECT tx.id, tx_out.id, tx_out.index, tx_out.address, tx_out.value
-FROM tx_out
-INNER JOIN tx ON tx_out.tx_id = tx.id
-WHERE tx.hash = '\xc40dbc63df9966a4704880cd0da79dfff68cc60fcce9bd04a35c81909ff7721a';
-
--- address for a transaction hash
-SELECT tx.id, tx_out.id, tx_out.index, tx_out.address, tx_out.value
-FROM tx_out
-INNER JOIN tx ON tx_out.tx_id = tx.id
-WHERE tx.hash = '\xc40dbc63df9966a4704880cd0da79dfff68cc60fcce9bd04a35c81909ff7721a' AND tx_out.index = 0;
-
--- tx outs for an address
-SELECT tx_out.id, tx_out.tx_id, tx_out.index, tx_out.address, tx_out.value FROM tx_out WHERE tx_out.address = 'addr_test1qzp4lqggu2qfr2qs5plsjh8q7l9y3afcxzwwyfv3em2aqe0k69w3xsq4ruy5tenk59cshs2m26ftpdvacmqcn7yfljps7zazwv';
-
--- spent tx outs for an address
-SELECT tx_out.id, tx_out.tx_id, tx_out.address, tx_out.value FROM tx_out WHERE tx_out.address = 'addr_test1qzp4lqggu2qfr2qs5plsjh8q7l9y3afcxzwwyfv3em2aqe0k69w3xsq4ruy5tenk59cshs2m26ftpdvacmqcn7yfljps7zazwv';
-
-*/

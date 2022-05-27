@@ -46,7 +46,7 @@ func articleList(e echo.Context) error {
 }
 
 func articleGet(e echo.Context) error {
-	record, article, err := GetArticle(e.Param("name"))
+	article, err := GetArticle(e.Param("name"))
 
 	if err != nil {
 		e.Logger().Error(err)
@@ -57,7 +57,7 @@ func articleGet(e echo.Context) error {
 		}
 	}
 
-	return e.JSON(http.StatusOK, &FullArticle{Article: article, Record: record})
+	return e.JSON(http.StatusOK, article)
 }
 
 func CuratorServer() error {

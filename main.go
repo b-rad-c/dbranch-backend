@@ -34,11 +34,11 @@ func main() {
 							if name == "" {
 								return errors.New("missing article name")
 							}
-							record, article, err := dbranch.GetArticle(name)
+							article, err := dbranch.GetArticle(name)
 							if err != nil {
 								return err
 							}
-							printJSON(&dbranch.FullArticle{Article: article, Record: record})
+							printJSON(article)
 							return nil
 						},
 					},
@@ -116,11 +116,11 @@ func main() {
 						Name:  "status",
 						Usage: "show db sync status",
 						Action: func(cli *cli.Context) error {
-							db_sync, err := dbranch.CardanoDBSyncStatus()
+							db_status, err := dbranch.CardanoDBSyncStatus()
 							if err != nil {
 								return err
 							}
-							fmt.Printf("{\"sync_progress\": %f}\n", *db_sync)
+							printJSON(db_status)
 							return nil
 						},
 					},
@@ -133,6 +133,11 @@ func main() {
 								Aliases: []string{"a", "addr"},
 								Usage:   "filter records by public address",
 							},
+							&cli.UintFlag{
+								Name:    "block_no",
+								Aliases: []string{"b"},
+								Usage:   "return records greater than this block number",
+							},
 							&cli.StringFlag{
 								Name:    "tx_hash",
 								Aliases: []string{"tx"},
@@ -142,20 +147,26 @@ func main() {
 						Action: func(cli *cli.Context) error {
 							address := cli.String("address")
 							tx_hash := cli.String("tx_hash")
+							block_no := cli.Uint("block_no")
+
+							args := []dbranch.RecordFilter{}
+
+							if address != "" {
+								args = append(args, dbranch.AddressFilter(address))
+							}
+
+							if tx_hash != "" {
+								args = append(args, dbranch.TxHashFilter(tx_hash))
+							}
+
+							if block_no > 0 {
+								args = append(args, dbranch.SinceBlockFilter(block_no))
+							}
+
 							var err error
-							var record dbranch.CardanoArticleRecord
 							var records []dbranch.CardanoArticleRecord
 
-							if address != "" && tx_hash != "" {
-								return errors.New("cannot specify both address and tx_hash")
-							} else if address != "" {
-								records, err = dbranch.CardanoRecordsByAddress(address)
-							} else if tx_hash != "" {
-								record, err = dbranch.CardanoRecordsByTxHash(tx_hash)
-								records = []dbranch.CardanoArticleRecord{record}
-							} else {
-								records, err = dbranch.CardanoRecords()
-							}
+							records, err = dbranch.ListCardanoRecords(args...)
 
 							if err != nil {
 								return err
@@ -201,7 +212,7 @@ func main() {
 						Name:  "wait",
 						Usage: "wait for network to become ready",
 						Action: func(cli *cli.Context) error {
-							dbranch.WaitForCardano()
+							dbranch.WaitForCardanoWallet()
 							return nil
 						},
 					},
@@ -270,14 +281,27 @@ func main() {
 				},
 			},
 			{
-				Name:  "run",
-				Usage: "Run the curator or web services",
+				Name:  "curator",
+				Usage: "Curator services",
 				Subcommands: []*cli.Command{
+					{
+						Name:  "addresses",
+						Usage: "list addresses the curator daemon will pull published articles from",
+						Action: func(cli *cli.Context) error {
+							addrs, err := dbranch.ListCardanoAddresses()
+							if err != nil {
+								return err
+							}
+							printJSON(addrs)
+							return nil
+						},
+					},
 					{
 						Name:  "daemon",
 						Usage: "run the curator daemon which pulls articles from the cardano blockchain",
 						Action: func(cli *cli.Context) error {
-							return errors.New("not implemented")
+							dbranch.CuratorDaemon()
+							return nil
 						},
 					},
 					{
