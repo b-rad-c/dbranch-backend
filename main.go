@@ -125,6 +125,18 @@ func main() {
 						},
 					},
 					{
+						Name:  "block",
+						Usage: "show current chain block and last block processed by daemon",
+						Action: func(cli *cli.Context) error {
+							block_status, err := dbranch.CardanoBlockStatus()
+							if err != nil {
+								return err
+							}
+							printJSON(block_status)
+							return nil
+						},
+					},
+					{
 						Name:  "records",
 						Usage: "show cardano article records",
 						Flags: []cli.Flag{

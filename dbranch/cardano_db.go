@@ -70,7 +70,7 @@ func init() {
 }
 
 //
-// db info
+// db status
 //
 
 type DBMeta struct {
@@ -86,6 +86,14 @@ type DBStatus struct {
 	SecondsBehind time.Duration `json:"seconds_behind"`
 	TimeBehind    string        `json:"time_behind"`
 }
+
+type DBBlockStatus struct {
+	LastChainBlockNumber  uint `json:"last_chain_block_number"`
+	LastDaemonBlockNumber uint `json:"last_daemon_block_number"`
+	Difference            int  `json:"difference"`
+}
+
+// methods
 
 func CardanoDBPing() error {
 	return db.Ping()
@@ -147,6 +155,20 @@ func CardanoDBSyncStatus() (DBStatus, error) {
 	return status, nil
 }
 
+func CardanoBlockStatus() (DBBlockStatus, error) {
+	status := DBBlockStatus{}
+
+	err := db.QueryRow("SELECT max(block_no) from block;").Scan(&status.LastChainBlockNumber)
+	if err != nil {
+		return status, err
+	}
+
+	status.LastDaemonBlockNumber = loadLastBlock()
+	status.Difference = int(status.LastChainBlockNumber) - int(status.LastDaemonBlockNumber)
+
+	return status, nil
+}
+
 //
 // db records
 //
@@ -188,6 +210,8 @@ func formatRecordRows(rows *sql.Rows) ([]CardanoArticleRecord, error) {
 	return records, nil
 }
 
+// filters
+
 func AddressFilter(address string) RecordFilter {
 	return func(index int, query string, args []any) (string, []any, error) {
 		query = fmt.Sprintf("%s AND tx_out.address = $%d", query, index)
@@ -206,13 +230,15 @@ func TxHashFilter(tx_hash string) RecordFilter {
 	}
 }
 
-// filter for blocks where block_no > block_number
 func SinceBlockFilter(block_number uint) RecordFilter {
+	// filter for blocks where block_no > block_number
 	return func(index int, query string, args []any) (string, []any, error) {
 		query = fmt.Sprintf("%s AND block_no > $%d", query, index)
 		return query, append(args, block_number), nil
 	}
 }
+
+// methods
 
 func ListCardanoRecords(filters ...RecordFilter) ([]CardanoArticleRecord, error) {
 

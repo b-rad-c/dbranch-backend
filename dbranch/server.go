@@ -23,7 +23,7 @@ func middleWare(next echo.HandlerFunc) echo.HandlerFunc {
 
 func articleIndex(e echo.Context) error {
 	index, err := LoadArticleIndex()
-	if err != nil {
+	if err != nil && err.Error() != "files/read: file does not exist" {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
 	}

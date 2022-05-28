@@ -234,6 +234,10 @@ func RemoveRecordFromLocal(name string) error {
 // index
 //
 
+func NewArticleIndex() *ArticleIndex {
+	return &ArticleIndex{Articles: []*ArticleIndexItem{}}
+}
+
 func GenerateArticleIndex() (*ArticleIndex, error) {
 	// init
 	names, err := ListArticles()
@@ -241,7 +245,7 @@ func GenerateArticleIndex() (*ArticleIndex, error) {
 		return nil, err
 	}
 
-	index := &ArticleIndex{}
+	index := NewArticleIndex()
 
 	for _, name := range names {
 		article, err := GetArticle(name)
@@ -256,7 +260,7 @@ func GenerateArticleIndex() (*ArticleIndex, error) {
 }
 
 func LoadArticleIndex() (*ArticleIndex, error) {
-	index := &ArticleIndex{}
+	index := NewArticleIndex()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -274,7 +278,7 @@ func LoadArticleIndex() (*ArticleIndex, error) {
 	return index, nil
 }
 
-func WriteArticleIndex(index *ArticleIndex) error {
+func writeArticleIndex(index *ArticleIndex) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -299,7 +303,7 @@ func RefreshArticleIndex() error {
 		return err
 	}
 
-	err = WriteArticleIndex(index)
+	err = writeArticleIndex(index)
 	if err != nil {
 		return err
 	}
