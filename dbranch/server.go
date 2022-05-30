@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/labstack/echo/v4/middleware"
 )
 
 //
@@ -13,12 +15,6 @@ import (
 
 type errorMsg struct {
 	Error string `json:"error"`
-}
-
-func middleWare(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return next(c)
-	}
 }
 
 //
@@ -125,15 +121,22 @@ func CuratorServer() error {
 
 	server := echo.New()
 
-	server.Use(middleWare)
+	server.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
+	}))
 
-	server.GET("/article/:name", articleGet)
-	server.GET("/article/list", articleList)
-	server.GET("/article/index", articleIndex)
-	server.GET("/db/meta", dbMeta)
-	server.GET("/db/sync", dbSyncStatus)
-	server.GET("/db/block", dbBlockStatus)
-	server.GET("/db/overview", dbOverview)
+	prefix := "/api/v0"
+
+	server.GET(prefix+"/article/list", articleList)
+	server.GET(prefix+"/article/index", articleIndex)
+	server.GET(prefix+"/article/:name", articleGet)
+
+	server.GET(prefix+"/db/meta", dbMeta)
+	server.GET(prefix+"/db/sync", dbSyncStatus)
+	server.GET(prefix+"/db/block", dbBlockStatus)
+	server.GET(prefix+"/db/overview", dbOverview)
+
 	server.GET("/*", func(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	})
