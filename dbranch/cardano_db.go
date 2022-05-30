@@ -80,7 +80,7 @@ type DBMeta struct {
 	Version     string    `json:"version"`
 }
 
-type DBStatus struct {
+type DBSyncStatus struct {
 	Percent       *float32      `json:"percent"`
 	LastBlockTime *time.Time    `json:"last_block_time"`
 	SecondsBehind time.Duration `json:"seconds_behind"`
@@ -91,6 +91,12 @@ type DBBlockStatus struct {
 	LastChainBlockNumber  uint `json:"last_chain_block_number"`
 	LastDaemonBlockNumber uint `json:"last_daemon_block_number"`
 	Difference            int  `json:"difference"`
+}
+
+type DBOverview struct {
+	Meta        DBMeta        `json:"meta"`
+	SyncStatus  DBSyncStatus  `json:"sync_status"`
+	BlockStatus DBBlockStatus `json:"block_status"`
 }
 
 // methods
@@ -132,8 +138,8 @@ func CardanoDBMeta() (*DBMeta, error) {
 	return db_meta, nil
 }
 
-func CardanoDBSyncStatus() (DBStatus, error) {
-	status := DBStatus{}
+func CardanoDBSyncStatus() (*DBSyncStatus, error) {
+	status := &DBSyncStatus{}
 
 	err := db.QueryRow(`select
 	100 * (extract (epoch from (max (time) at time zone 'UTC')) - extract (epoch from (min (time) at time zone 'UTC')))
@@ -155,8 +161,8 @@ func CardanoDBSyncStatus() (DBStatus, error) {
 	return status, nil
 }
 
-func CardanoBlockStatus() (DBBlockStatus, error) {
-	status := DBBlockStatus{}
+func CardanoDBBlockStatus() (*DBBlockStatus, error) {
+	status := &DBBlockStatus{}
 
 	err := db.QueryRow("SELECT max(block_no) from block;").Scan(&status.LastChainBlockNumber)
 	if err != nil {
@@ -167,6 +173,30 @@ func CardanoBlockStatus() (DBBlockStatus, error) {
 	status.Difference = int(status.LastChainBlockNumber) - int(status.LastDaemonBlockNumber)
 
 	return status, nil
+}
+
+func CardanoDBOverview() (*DBOverview, error) {
+	overview := &DBOverview{}
+
+	meta, err := CardanoDBMeta()
+	if err != nil {
+		return overview, err
+	}
+	overview.Meta = *meta
+
+	sync_status, err := CardanoDBSyncStatus()
+	if err != nil {
+		return overview, err
+	}
+	overview.SyncStatus = *sync_status
+
+	block_status, err := CardanoDBBlockStatus()
+	if err != nil {
+		return overview, err
+	}
+	overview.BlockStatus = *block_status
+
+	return overview, nil
 }
 
 //

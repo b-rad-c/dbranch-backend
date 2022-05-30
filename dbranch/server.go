@@ -21,9 +21,13 @@ func middleWare(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+//
+// article endpoints
+//
+
 func articleIndex(e echo.Context) error {
 	index, err := LoadArticleIndex()
-	if err != nil && err.Error() != "files/read: file does not exist" {
+	if err != nil {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
 	}
@@ -60,6 +64,58 @@ func articleGet(e echo.Context) error {
 	return e.JSON(http.StatusOK, article)
 }
 
+//
+// db status endpoints
+//
+
+func dbMeta(e echo.Context) error {
+	meta, err := CardanoDBMeta()
+
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
+	}
+
+	return e.JSON(http.StatusOK, meta)
+}
+
+func dbSyncStatus(e echo.Context) error {
+	sync_status, err := CardanoDBSyncStatus()
+
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
+	}
+
+	return e.JSON(http.StatusOK, sync_status)
+}
+
+func dbBlockStatus(e echo.Context) error {
+	block_status, err := CardanoDBBlockStatus()
+
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
+	}
+
+	return e.JSON(http.StatusOK, block_status)
+}
+
+func dbOverview(e echo.Context) error {
+	overview, err := CardanoDBOverview()
+
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
+	}
+
+	return e.JSON(http.StatusOK, overview)
+}
+
+//
+// server / router
+//
+
 func CuratorServer() error {
 
 	port := os.Getenv("DBRANCH_SERVER_PORT")
@@ -74,6 +130,10 @@ func CuratorServer() error {
 	server.GET("/article/:name", articleGet)
 	server.GET("/article/list", articleList)
 	server.GET("/article/index", articleIndex)
+	server.GET("/db/meta", dbMeta)
+	server.GET("/db/sync", dbSyncStatus)
+	server.GET("/db/block", dbBlockStatus)
+	server.GET("/db/overview", dbOverview)
 	server.GET("/*", func(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	})

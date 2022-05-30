@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path"
@@ -66,7 +67,7 @@ type ArticleIndex struct {
 func loadArticleRecord(name string) (*ArticleRecord, error) {
 	// init
 	record := &ArticleRecord{}
-	record_path := path.Join(CuratedDir, record.Name) + ".json"
+	record_path := path.Join(CuratedDir, name) + ".json"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -74,12 +75,12 @@ func loadArticleRecord(name string) (*ArticleRecord, error) {
 	// read and decode record
 	record_raw, err := shell.FilesRead(ctx, record_path, ipfs.FilesLs.Stat(true))
 	if err != nil {
-		return record, err
+		return record, errors.New("could not load article record: " + record_path + ":" + err.Error())
 	}
 
 	err = json.NewDecoder(record_raw).Decode(&record)
 	if err != nil {
-		return record, err
+		return record, errors.New("could not load article record: " + record_path + ":" + err.Error())
 	}
 
 	return record, nil
@@ -96,7 +97,7 @@ func loadArticle(name string) (*Article, error) {
 	// read and decode article
 	article_raw, err := shell.FilesRead(ctx, article_path, ipfs.FilesLs.Stat(true))
 	if err != nil {
-		return article, err
+		return article, errors.New("could not load article: " + article_path + " : " + err.Error())
 	}
 
 	err = json.NewDecoder(article_raw).Decode(&article)
@@ -161,11 +162,15 @@ func AddRecordToLocal(record *ArticleRecord) error {
 		return err
 	}
 
+	log.Printf("copied article: %s to: %s\n", ipfs_source, article_path)
+
 	// pin article because FilesCp does not copy the entire contents of the file, just the root node of the DAG
 	err = shell.Pin(record.CID)
 	if err != nil {
 		return err
 	}
+
+	log.Printf("pinned CID: %s\n", record.CID)
 
 	//
 	// set meteadata
@@ -189,10 +194,12 @@ func AddRecordToLocal(record *ArticleRecord) error {
 	}
 
 	json_reader := bytes.NewReader(mashalled_record)
-	err = shell.FilesWrite(ctx, record_path, json_reader)
+	err = shell.FilesWrite(ctx, record_path, json_reader, ipfs.FilesWrite.Create(true))
 	if err != nil {
-		return err
+		return errors.New("Error writing article record to: " + record_path + ": " + err.Error())
 	}
+
+	log.Printf("wrote artricle record to: %s\n", record_path)
 
 	// refresh article index
 	err = RefreshArticleIndex()
@@ -260,21 +267,29 @@ func GenerateArticleIndex() (*ArticleIndex, error) {
 }
 
 func LoadArticleIndex() (*ArticleIndex, error) {
+	fmt.Printf("loading article index\n")
 	index := NewArticleIndex()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-
+	fmt.Printf("reading article index\n")
 	content, err := shell.FilesRead(ctx, IndexFile)
+	fmt.Printf("read article index\n")
+
 	if err != nil {
-		return index, err
+		if err.Error() == "files/read: file does not exist" {
+			return index, nil
+		} else {
+			return index, err
+		}
 	}
 
+	fmt.Printf("decoding article index\n")
 	err = json.NewDecoder(content).Decode(&index)
 	if err != nil {
 		return index, err
 	}
-
+	fmt.Printf("done loading article index\n")
 	return index, nil
 }
 

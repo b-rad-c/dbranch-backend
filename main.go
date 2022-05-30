@@ -101,6 +101,18 @@ func main() {
 						},
 					},
 					{
+						Name:  "overview",
+						Usage: "show db meta, sync and block data",
+						Action: func(cli *cli.Context) error {
+							overview, err := dbranch.CardanoDBOverview()
+							if err != nil {
+								return err
+							}
+							printJSON(overview)
+							return nil
+						},
+					},
+					{
 						Name:  "meta",
 						Usage: "show db metadata",
 						Action: func(cli *cli.Context) error {
@@ -113,7 +125,7 @@ func main() {
 						},
 					},
 					{
-						Name:  "status",
+						Name:  "sync",
 						Usage: "show db sync status",
 						Action: func(cli *cli.Context) error {
 							db_status, err := dbranch.CardanoDBSyncStatus()
@@ -128,7 +140,7 @@ func main() {
 						Name:  "block",
 						Usage: "show current chain block and last block processed by daemon",
 						Action: func(cli *cli.Context) error {
-							block_status, err := dbranch.CardanoBlockStatus()
+							block_status, err := dbranch.CardanoDBBlockStatus()
 							if err != nil {
 								return err
 							}

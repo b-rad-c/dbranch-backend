@@ -119,6 +119,7 @@ func CuratorDaemon() {
 
 			for _, record := range records {
 				log.Printf("adding record from hash: %s\n", record.TxHash)
+				AddRecordByCardanoTxHash(record.TxHash)
 				block_no = record.BlockNumber
 				log.Printf("new block_no: %d\n", block_no)
 				saveLastBlock(block_no)
