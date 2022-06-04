@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"syscall"
 	"time"
 
@@ -221,12 +222,26 @@ func ListSignedArticles(wallet_id string) ([]ArticleTransaction, error) {
 	return articles, nil
 }
 
-func SignArticle(wallet_id, address, article_name, location string) (string, error) {
+func SignArticle(wallet_id, address, mfs_path string) (*ArticleRecord, error) {
+	//
+	// init
+	//
+
+	_, article_name := path.Split(mfs_path)
+	stat, err := statIpfsPath(mfs_path)
+	if err != nil {
+		return nil, err
+	}
+
+	ipfs_path := "ipfs://" + stat.Hash
+
 	// get user password
-	fmt.Println("Cardano wallet password: ")
+	fmt.Printf("Sign article\n\tname: %s\n\tlocation: %s\n", article_name, ipfs_path)
+	fmt.Println("To sign enter cardano wallet password: ")
+
 	password, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
-		return "", errors.New("error reading password: " + err.Error())
+		return nil, errors.New("error reading password: " + err.Error())
 	}
 	fmt.Println() // needed to clear the password from the terminal
 
@@ -251,7 +266,7 @@ func SignArticle(wallet_id, address, article_name, location string) (string, err
 					},
 					{
 						Key:   cborString{String: "loc"},
-						Value: cborString{String: location},
+						Value: cborString{String: ipfs_path},
 					},
 				},
 			},
@@ -260,13 +275,13 @@ func SignArticle(wallet_id, address, article_name, location string) (string, err
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return "", errors.New("Error encoding json body: " + err.Error())
+		return nil, errors.New("Error encoding json body: " + err.Error())
 	}
 
 	url := wallet_host + "/v2/wallets/" + wallet_id + "/transactions"
 	resp, err := client.Post(url, "application/json; charset=UTF-8", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", errors.New(url + " returned error: " + err.Error())
+		return nil, errors.New(url + " returned error: " + err.Error())
 	}
 
 	defer resp.Body.Close()
@@ -277,24 +292,23 @@ func SignArticle(wallet_id, address, article_name, location string) (string, err
 
 		err = json.NewDecoder(resp.Body).Decode(&data)
 		if err != nil {
-			return "", errors.New("error decoding config file: " + err.Error())
+			return nil, errors.New("error decoding config file: " + err.Error())
 		}
 
-		id := data.(map[string]interface{})["id"].(string)
-		return id, nil
+		tx_hash := data.(map[string]interface{})["id"].(string)
+		return PublishRecordByCardanoTxHash(tx_hash)
 
 	} else {
 		// handle error
 		var err_msg = walletError{}
 		err = json.NewDecoder(resp.Body).Decode(&err_msg)
 		if err != nil {
-			return "", errors.New(fmt.Sprintf("got status %v and error decoding resp: %v", resp.Status, err.Error()))
+			return nil, errors.New(fmt.Sprintf("got status %v and error decoding resp: %v", resp.Status, err.Error()))
 		}
 
-		return "", errors.New(fmt.Sprintf("%v - %v - %v", resp.Status, err_msg.Code, err_msg.Message))
+		return nil, errors.New(fmt.Sprintf("%v - %v - %v", resp.Status, err_msg.Code, err_msg.Message))
 
 	}
-
 }
 
 //

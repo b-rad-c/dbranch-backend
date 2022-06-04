@@ -18,6 +18,7 @@ import (
 var shell *ipfs.Shell
 
 const CuratedDir = "/dBranch/curated"
+const PublishedDir = "/dBranch/published"
 const IndexFile = "/dBranch/index.json"
 
 func init() {
@@ -26,7 +27,7 @@ func init() {
 		host = "localhost:5001"
 	}
 	shell = ipfs.NewShell(host)
-
+	shell.SetTimeout(15 * time.Second)
 }
 
 //
@@ -61,56 +62,62 @@ type ArticleIndexItem struct {
 }
 
 type ArticleIndex struct {
-	Articles []*ArticleIndexItem `json:"articles"`
+	CuratedArticles   []*ArticleIndexItem `json:"curated"`
+	PublishedArticles []*ArticleIndexItem `json:"published"`
 }
 
-func loadArticleRecord(name string) (*ArticleRecord, error) {
+func statIpfsPath(path string) (*ipfs.FilesStatObject, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return shell.FilesStat(ctx, path)
+}
+
+func loadArticleRecord(path string) (*ArticleRecord, error) {
 	// init
 	record := &ArticleRecord{}
-	record_path := path.Join(CuratedDir, name) + ".json"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// read and decode record
-	record_raw, err := shell.FilesRead(ctx, record_path, ipfs.FilesLs.Stat(true))
+	record_raw, err := shell.FilesRead(ctx, path, ipfs.FilesLs.Stat(true))
 	if err != nil {
-		return record, errors.New("could not load article record: " + record_path + ":" + err.Error())
+		return record, err
 	}
 
 	err = json.NewDecoder(record_raw).Decode(&record)
 	if err != nil {
-		return record, errors.New("could not load article record: " + record_path + ":" + err.Error())
+		return record, err
 	}
 
 	return record, nil
 }
 
-func loadArticle(name string) (*Article, error) {
+func loadArticle(path string) (*Article, error) {
 	// init
 	article := &Article{}
-	article_path := path.Join(CuratedDir, name)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// read and decode article
-	article_raw, err := shell.FilesRead(ctx, article_path, ipfs.FilesLs.Stat(true))
+	article_raw, err := shell.FilesRead(ctx, path, ipfs.FilesLs.Stat(true))
 	if err != nil {
-		return article, errors.New("could not load article: " + article_path + " : " + err.Error())
+		return article, err
 	}
 
 	err = json.NewDecoder(article_raw).Decode(&article)
 	return article, err
 }
 
-func GetArticle(name string) (*Article, error) {
-	article, err := loadArticle(name)
+func GetArticleByMFSPath(path string) (*Article, error) {
+	/* get an article and record by MFS path */
+	article, err := loadArticle(path)
 	if err != nil {
 		return nil, err
 	}
 
-	record, err := loadArticleRecord(name)
+	record, err := loadArticleRecord(path + ".json")
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +126,56 @@ func GetArticle(name string) (*Article, error) {
 	return article, nil
 }
 
-func ListArticles() ([]string, error) {
+func cidIsPinned(cid string) (bool, error) {
+	if strings.HasPrefix(cid, "/ipfs/") {
+		cid = cid[6:]
+	}
+
+	pins, err := shell.Pins()
+	if err != nil {
+		return false, err
+	}
+
+	_, pinned := pins[cid]
+
+	return pinned, nil
+}
+
+func GetArticleByCID(ipfs_path string) (*Article, error) {
+	/*
+		get an article (w/o record) by IPFS path
+			examples:
+				/ipfs/<cid>
+				<cid>
+	*/
+
+	// check if pinned because the Cat command will search the network if it is not local, potentially taking a while
+	pinned, err := cidIsPinned(ipfs_path)
+	if err != nil {
+		return nil, err
+	}
+
+	if !pinned {
+		return nil, errors.New("article not found")
+	}
+
+	if !strings.HasPrefix(ipfs_path, "/ipfs/") {
+		ipfs_path = "/ipfs/" + ipfs_path
+	}
+
+	resp, err := shell.Cat(ipfs_path)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Close()
+
+	article := &Article{}
+	err = json.NewDecoder(resp).Decode(&article)
+
+	return article, nil
+}
+
+func listArticles(path string) ([]string, error) {
 	// init
 	list := []string{}
 
@@ -127,12 +183,12 @@ func ListArticles() ([]string, error) {
 	defer cancel()
 
 	// get listing
-	ls, err := shell.FilesLs(ctx, CuratedDir)
+	ls, err := shell.FilesLs(ctx, path)
 	if err != nil {
 		return list, err
 	}
 
-	// get metadata for each listing
+	// filter non .news files (ex: record files w .json extension)
 	for _, entry := range ls {
 		if strings.HasSuffix(entry.Name, ".news") {
 			list = append(list, entry.Name)
@@ -142,35 +198,38 @@ func ListArticles() ([]string, error) {
 	return list, nil
 }
 
-func AddRecordToLocal(record *ArticleRecord) error {
+func AddRecordToLocal(directory string, record *ArticleRecord, copy_article bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	ipfs_source := path.Join("/ipfs", record.CID)
-	article_path := path.Join(CuratedDir, record.Name)
+	article_path := path.Join(directory, record.Name)
 	record_path := article_path + ".json"
 
 	//
-	// copy article to ipfs files (mfs)
+	// optionally copy article to ipfs files (mfs)
 	//
 
-	ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	if copy_article {
 
-	err := shell.FilesCp(ctx, ipfs_source, article_path)
-	if err != nil {
-		return err
+		ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := shell.FilesCp(ctx, ipfs_source, article_path)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("copied article: %s to: %s\n", ipfs_source, article_path)
+
+		// pin article because FilesCp does not copy the entire contents of the file, just the root node of the DAG
+		err = shell.Pin(record.CID)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("pinned CID: %s\n", record.CID)
 	}
-
-	log.Printf("copied article: %s to: %s\n", ipfs_source, article_path)
-
-	// pin article because FilesCp does not copy the entire contents of the file, just the root node of the DAG
-	err = shell.Pin(record.CID)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("pinned CID: %s\n", record.CID)
 
 	//
 	// set meteadata
@@ -242,25 +301,40 @@ func RemoveRecordFromLocal(name string) error {
 //
 
 func NewArticleIndex() *ArticleIndex {
-	return &ArticleIndex{Articles: []*ArticleIndexItem{}}
+	return &ArticleIndex{CuratedArticles: []*ArticleIndexItem{}, PublishedArticles: []*ArticleIndexItem{}}
 }
 
 func GenerateArticleIndex() (*ArticleIndex, error) {
-	// init
-	names, err := ListArticles()
-	if err != nil {
-		return nil, err
-	}
 
 	index := NewArticleIndex()
 
-	for _, name := range names {
-		article, err := GetArticle(name)
+	paths := []string{CuratedDir, PublishedDir}
+	for _, directory := range paths {
+		names, err := listArticles(directory)
 		if err != nil {
-			return index, err
+			return nil, err
 		}
-		item := &ArticleIndexItem{Record: article.Record, Metadata: article.Metadata}
-		index.Articles = append(index.Articles, item)
+
+		for _, name := range names {
+
+			article, err := GetArticleByMFSPath(path.Join(directory, name))
+			if err != nil {
+				if err.Error() == "files/read: file does not exist" {
+					// record does not exist for a published article (ie. is hasn't been signed yet)
+					continue
+				} else {
+					return nil, err
+				}
+			}
+
+			item := &ArticleIndexItem{Record: article.Record, Metadata: article.Metadata}
+
+			if directory == CuratedDir {
+				index.CuratedArticles = append(index.CuratedArticles, item)
+			} else {
+				index.PublishedArticles = append(index.PublishedArticles, item)
+			}
+		}
 	}
 
 	return index, nil

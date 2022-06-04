@@ -31,26 +31,12 @@ func articleIndex(e echo.Context) error {
 	return e.JSON(http.StatusOK, index)
 }
 
-type articleListResponse struct {
-	Articles []string `json:"articles"`
-}
-
-func articleList(e echo.Context) error {
-	list, err := ListArticles()
-	if err != nil {
-		e.Logger().Error(err)
-		return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
-	}
-
-	return e.JSON(http.StatusOK, &articleListResponse{Articles: list})
-}
-
-func articleGet(e echo.Context) error {
-	article, err := GetArticle(e.Param("name"))
+func articleGetByCid(e echo.Context) error {
+	article, err := GetArticleByCID(e.Param("cid"))
 
 	if err != nil {
 		e.Logger().Error(err)
-		if err.Error() == "files/read: file does not exist" {
+		if err.Error() == "article not found" {
 			return e.JSON(http.StatusNotFound, &errorMsg{Error: "article not found"})
 		} else {
 			return e.JSON(http.StatusInternalServerError, &errorMsg{Error: "internal server error"})
@@ -128,9 +114,8 @@ func CuratorServer() error {
 
 	prefix := "/api/v0"
 
-	server.GET(prefix+"/article/list", articleList)
 	server.GET(prefix+"/article/index", articleIndex)
-	server.GET(prefix+"/article/:name", articleGet)
+	server.GET(prefix+"/article/cid/:cid", articleGetByCid)
 
 	server.GET(prefix+"/db/meta", dbMeta)
 	server.GET(prefix+"/db/sync", dbSyncStatus)

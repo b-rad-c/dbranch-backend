@@ -294,23 +294,29 @@ func ListCardanoRecords(filters ...RecordFilter) ([]CardanoArticleRecord, error)
 	return formatRecordRows(rows)
 }
 
-func AddRecordByCardanoTxHash(tx_hash string) error {
-	record, err := ListCardanoRecords(TxHashFilter(tx_hash))
-	if err != nil {
-		return err
-	}
-
-	if len(record) == 0 {
-		return errors.New("no record found for hash: " + tx_hash)
-	}
-
-	return AddCardanoRecordToLocal(&record[0])
+func CurateRecordByCardanoTxHash(tx_hash string) (*ArticleRecord, error) {
+	return addRecordByCardanoTxHash(CuratedDir, tx_hash, true)
 }
 
-func AddCardanoRecordToLocal(record *CardanoArticleRecord) error {
+func PublishRecordByCardanoTxHash(tx_hash string) (*ArticleRecord, error) {
+	return addRecordByCardanoTxHash(PublishedDir, tx_hash, false)
+}
 
+func addRecordByCardanoTxHash(mfs_directory string, tx_hash string, copy_article bool) (*ArticleRecord, error) {
+	records, err := ListCardanoRecords(TxHashFilter(tx_hash))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) == 0 {
+		return nil, errors.New("no record found for hash: " + tx_hash)
+	}
+
+	record := records[0]
+
+	// return addCardanoRecordToLocal(mfs_directory, &record[0], copy_article)
 	if !strings.HasPrefix(record.Location, "ipfs://") {
-		return errors.New("invalid location: " + record.Location)
+		return nil, errors.New("invalid location: " + record.Location)
 	}
 
 	article := &ArticleRecord{
@@ -320,5 +326,10 @@ func AddCardanoRecordToLocal(record *CardanoArticleRecord) error {
 		CardanoTxHash: record.TxHash,
 	}
 
-	return AddRecordToLocal(article)
+	err = AddRecordToLocal(mfs_directory, article, copy_article)
+	if err != nil {
+		return article, err
+	}
+
+	return article, err
 }

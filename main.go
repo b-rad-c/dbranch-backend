@@ -27,14 +27,15 @@ func main() {
 				Usage: "Interact with curated articles",
 				Subcommands: []*cli.Command{
 					{
-						Name:  "get",
-						Usage: "get a curated article",
+						Name:      "get-mfs",
+						Usage:     "get an article and record by mfs path",
+						UsageText: "article get-mfs [mfs_path]",
 						Action: func(cli *cli.Context) error {
-							name := cli.Args().First()
-							if name == "" {
-								return errors.New("missing article name")
+							path := cli.Args().First()
+							if path == "" {
+								return errors.New("missing article path")
 							}
-							article, err := dbranch.GetArticle(name)
+							article, err := dbranch.GetArticleByMFSPath(path)
 							if err != nil {
 								return err
 							}
@@ -43,14 +44,19 @@ func main() {
 						},
 					},
 					{
-						Name:  "list",
-						Usage: "list curated articles",
+						Name:      "get-cid",
+						Usage:     "get an article by mfs path",
+						UsageText: "article get-cid [ipfs_path]",
 						Action: func(cli *cli.Context) error {
-							names, err := dbranch.ListArticles()
+							ipfs_path := cli.Args().First()
+							if ipfs_path == "" {
+								return errors.New("missing article cid")
+							}
+							article, err := dbranch.GetArticleByCID(ipfs_path)
 							if err != nil {
 								return err
 							}
-							printJSON(names)
+							printJSON(article)
 							return nil
 						},
 					},
@@ -200,20 +206,41 @@ func main() {
 						},
 					},
 					{
-						Name:      "add-tx",
+						Name:      "curate-tx",
 						Usage:     "add article to curated list by cardano tx hash",
-						ArgsUsage: "add-tx [tx_hash]",
+						ArgsUsage: "curate-tx [tx_hash]",
 						Action: func(cli *cli.Context) error {
 							tx_hash := cli.Args().First()
 							if tx_hash == "" {
 								return fmt.Errorf("missing tx_hash")
 							}
-							return dbranch.AddRecordByCardanoTxHash(tx_hash)
+							record, err := dbranch.CurateRecordByCardanoTxHash(tx_hash)
+							if err != nil {
+								return err
+							}
+							printJSON(record)
+							return nil
+						},
+					},
+					{
+						Name:      "publish-tx",
+						Usage:     "add article to published list by cardano tx hash",
+						ArgsUsage: "publish-tx [tx_hash]",
+						Action: func(cli *cli.Context) error {
+							tx_hash := cli.Args().First()
+							if tx_hash == "" {
+								return fmt.Errorf("missing tx_hash")
+							}
+							record, err := dbranch.PublishRecordByCardanoTxHash(tx_hash)
+							if err != nil {
+								return err
+							}
+							printJSON(record)
+							return nil
 						},
 					},
 				},
 			},
-
 			{
 				Name:    "cardano-wallet",
 				Aliases: []string{"wallet"},
@@ -277,15 +304,15 @@ func main() {
 					{
 						Name:      "sign",
 						Usage:     "sign an article by sending a transaction to your own wallet with metadata about the article",
-						UsageText: "sign [wallet_id] [address] [article_name] [location]",
+						UsageText: "sign [wallet_id] [address] [article_path]",
 						Action: func(cli *cli.Context) error {
 							args := cli.Args().Slice()
-							transaction_id, err := dbranch.SignArticle(args[0], args[1], args[2], args[3])
+							record, err := dbranch.SignArticle(args[0], args[1], args[2])
 							if err != nil {
 								return err
 							}
 
-							fmt.Printf("transaction id: %s\n", transaction_id)
+							printJSON(record)
 							return nil
 						},
 					},
