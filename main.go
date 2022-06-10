@@ -45,18 +45,26 @@ func main() {
 					},
 					{
 						Name:      "get-cid",
-						Usage:     "get an article by mfs path",
-						UsageText: "article get-cid [ipfs_path]",
+						Usage:     "get an article by cid",
+						UsageText: "article get-cid [cid]",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:    "load_record",
+								Aliases: []string{"r", "record"},
+								Usage:   "optionally fetch and attach record",
+							},
+						},
 						Action: func(cli *cli.Context) error {
-							ipfs_path := cli.Args().First()
-							if ipfs_path == "" {
+							article_cid := cli.Args().First()
+							if article_cid == "" {
 								return errors.New("missing article cid")
 							}
-							article, err := dbranch.GetArticleByCID(ipfs_path)
+							article, err := dbranch.GetArticleByCID(article_cid, cli.Bool("load_record"))
 							if err != nil {
 								return err
 							}
 							printJSON(article)
+							fmt.Printf("load record? %v\n", cli.Bool("load_record"))
 							return nil
 						},
 					},

@@ -141,16 +141,9 @@ func cidIsPinned(cid string) (bool, error) {
 	return pinned, nil
 }
 
-func GetArticleByCID(ipfs_path string) (*Article, error) {
-	/*
-		get an article (w/o record) by IPFS path
-			examples:
-				/ipfs/<cid>
-				<cid>
-	*/
-
-	// check if pinned because the Cat command will search the network if it is not local, potentially taking a while
-	pinned, err := cidIsPinned(ipfs_path)
+func GetArticleByCID(article_cid string, load_record bool) (*Article, error) {
+	// check if pinned because the Cat command will search the network if it is not local, potentially resulting in a timeout
+	pinned, err := cidIsPinned(article_cid)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +152,8 @@ func GetArticleByCID(ipfs_path string) (*Article, error) {
 		return nil, errors.New("article not found")
 	}
 
-	if !strings.HasPrefix(ipfs_path, "/ipfs/") {
-		ipfs_path = "/ipfs/" + ipfs_path
-	}
-
-	resp, err := shell.Cat(ipfs_path)
+	// load and decode article
+	resp, err := shell.Cat("/ipfs/" + article_cid)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +162,34 @@ func GetArticleByCID(ipfs_path string) (*Article, error) {
 	article := &Article{}
 	err = json.NewDecoder(resp).Decode(&article)
 
+	// load article record if requested
+	if load_record {
+		record, err := GetRecordForArticle(article_cid)
+		if err != nil {
+			return nil, err
+		}
+		article.Record = record
+	}
+
 	return article, nil
+}
+
+func GetRecordForArticle(article_cid string) (*ArticleRecord, error) {
+	index, err := LoadArticleIndex()
+	if err != nil {
+		return nil, err
+	}
+
+	// search index for matching CID then return record, this is a temp that will not scale well
+	items := append(index.CuratedArticles, index.PublishedArticles...)
+	for _, item := range items {
+		if item.Record.CID == article_cid {
+			return item.Record, nil
+		}
+	}
+
+	return nil, errors.New("record not found")
+
 }
 
 func listArticles(path string) ([]string, error) {

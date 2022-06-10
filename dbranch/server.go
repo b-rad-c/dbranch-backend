@@ -32,8 +32,17 @@ func articleIndex(e echo.Context) error {
 }
 
 func articleGetByCid(e echo.Context) error {
-	article, err := GetArticleByCID(e.Param("cid"))
+	// init request
+	article_cid := e.Param("cid")
+	load_record := false
+	err := echo.QueryParamsBinder(e).Bool("record", &load_record).BindError()
+	if err != nil {
+		e.Logger().Error(err)
+		return e.JSON(http.StatusBadRequest, &errorMsg{Error: "invalud request: " + err.Error()})
+	}
 
+	// load article
+	article, err := GetArticleByCID(article_cid, load_record)
 	if err != nil {
 		e.Logger().Error(err)
 		if err.Error() == "article not found" {
