@@ -35,7 +35,7 @@ func articleGetByCid(e echo.Context) error {
 	// init request
 	article_cid := e.Param("cid")
 	load_record := false
-	err := echo.QueryParamsBinder(e).Bool("record", &load_record).BindError()
+	err := echo.QueryParamsBinder(e).Bool("load_record", &load_record).BindError()
 	if err != nil {
 		e.Logger().Error(err)
 		return e.JSON(http.StatusBadRequest, &errorMsg{Error: "invalud request: " + err.Error()})
